@@ -12,7 +12,7 @@ import CSV
 import DataFrames
 
 dfIn  = CSV.File("cz-prom100.csv",select=[4,5,12],type=String) |> DataFrames.DataFrame
-dfOut = DataFrames.DataFrame(Mountain = String[], Elevation = Float64[], Latitude=Float64[], Longitude=Float64[])
+dfOut = DataFrames.DataFrame(Summit = String[], Elevation = Float64[], Latitude=Float64[], Longitude=Float64[])
 
 nRows = size(dfIn)[1]
 for row in 1:nRows
@@ -24,4 +24,4 @@ for row in 1:nRows
     east  = parse(Float64, m["edeg"]) + parse(Float64, m["emin"])/60.0
     push!(dfOut, (mountain, elevation, north, east))
 end
-CSV.write("data-cz-prom100.csv",dfOut; delim='\t',quotestrings=true)
+CSV.write("data-cz-prom100.tsv",dfOut; delim='\t',quotestrings=true)
