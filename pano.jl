@@ -126,7 +126,7 @@ function loadData(range::SrtmRange, tileDir)
     data = Array{Int16}(undef, dataHeight, dataWidth)
     progress = 0
     for lat in range.minLat:range.maxLat
-        for lon in range.minLon:range.maxLon
+        Threads.@threads for lon in range.minLon:range.maxLon
             # Print progress            
             progress = progress + 1
             println(@sprintf("Loading tile %03d/%03d lat=%02d, lon=%02d", progress, nTilesTotal, lat, lon))
@@ -143,7 +143,7 @@ function loadData(range::SrtmRange, tileDir)
             rOffset = (range.maxLat-lat) * 1200
             cOffset = (lon-range.minLon) * 1200
             for r in 1:1201
-                for c in 1:1201
+                @simd for c in 1:1201
                     data[rOffset+r, cOffset+c] = tile[r, c]
                 end
             end                    
@@ -221,8 +221,9 @@ function makeDistMap(eye::PositionLLH, srtmRange::SrtmRange, heightMap::Matrix{I
         h0            = eye.height
         rayCastHeight = h0
         index         = 1
+        direction     = vNorth*cosAz + vEast*sinAz
         for dist in distances
-            point = pRef + vNorth*dist*cosAz + vEast*dist*sinAz;
+            point = pRef + dist * direction;
             llh = xyz_to_llh(wgs84, PositionXYZ(point[1], point[2], point[3]))
             rayCastHeight = h0 + sin(vertAngle) * dist
             terrainHeight = earthCurve[index] + getHeight(srtmRange, heightMap, llh.lat, llh.lon)
@@ -267,7 +268,11 @@ function main()
     println(@sprintf("min=%d max=%d", minValue, maxValue))  
     norm = Gray.(output/maxValue)
     println("Saving distmap-gray.png")
-    save("disttmap-gray.png", norm)     
+    save("disttmap-gray.png", norm)   
+    
+    # This can be fun: https://wiki.flightgear.org/Atmospheric_light_scattering
+    # http://www.science-and-fiction.org/rendering/als.html
+    
 end
 
 main()
