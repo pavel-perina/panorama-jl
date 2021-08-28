@@ -1,7 +1,8 @@
-using Printf
-# dot,cross
-using LinearAlgebra
-using Images
+using Printf, LinearAlgebra
+import FixedPointNumbers: N0f8
+import Images
+import CSV, DataFrames
+
 #===========================================
   ____            _   _ _   _ _
  / ___| ___  ___ | | | | |_(_) |___
@@ -90,7 +91,7 @@ end
 ===============================================================#
 
 
-struct SrtmRange
+struct LatLonRange
     minLat::Int16
     minLon::Int16
     maxLat::Int16
@@ -104,7 +105,7 @@ getHgtFileName(lat, lon) = @sprintf "N%02dE%03d.hgt" lat lon
 getHgtFilePath(lat, lon, tileDir) = @sprintf "%s\\%s" tileDir getHgtFileName(lat, lon)
 
 
-function loadData(range::SrtmRange, tileDir)
+function loadData(range::LatLonRange, tileDir)
     nTilesHoriz = range.maxLon - range.minLon + 1
     nTilesVert  = range.maxLat - range.minLat + 1
     nTilesTotal = nTilesHoriz * nTilesVert
@@ -123,7 +124,7 @@ function loadData(range::SrtmRange, tileDir)
         ))
 
     # Note: array is indexed by row, column and starting index is 1
-    data = Array{Int16}(undef, dataHeight, dataWidth)
+    data = Array{UInt16}(undef, dataHeight, dataWidth)
     progress = 0
     for lat in range.minLat:range.maxLat
         Threads.@threads for lon in range.minLon:range.maxLon
@@ -162,11 +163,9 @@ function saveHeightMap(data)
    save("heightmap-gray.png", norm)
 end
 
-#============================
-============================#
 
 # getHeight(srtmRange, heightMap, 49.142158, 16.627978) -> 192 Svratka, Svitava
-function getHeight(range::SrtmRange, data::Matrix{Int16}, lat::Float64, lon::Float64)
+function getHeight(range::LatLonRange, data::Matrix{UInt16}, lat::Float64, lon::Float64)
     r = Int64(trunc((range.maxLat+1 - lat)*1200))
     c = Int64(trunc((lon-range.minLon)*1200))
     r = clamp(r, 1, size(data)[1])
@@ -175,15 +174,11 @@ function getHeight(range::SrtmRange, data::Matrix{Int16}, lat::Float64, lon::Flo
 end
 
 
-function makeEarthCurve(radius, distMax, distStep)
-    distances = range(0, distMax, step=distStep)
-    [sqrt(radius*radius-x*x)-radius for x=distances]
-end
+makeEarthCurve(radius, distMax, distStep) = [sqrt(radius*radius-x*x)-radius for x=range(0, distMax, step=distStep)]
 
 
+function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matrix{UInt16})
 
-
-function makeDistMap(eye::PositionLLH, srtmRange::SrtmRange, heightMap::Matrix{Int16})
     wgs84  = createWgs84Ellipsoid()
     eyeXYZ = llh_to_xyz(wgs84, eye)
     
@@ -203,16 +198,17 @@ function makeDistMap(eye::PositionLLH, srtmRange::SrtmRange, heightMap::Matrix{I
 # Note: 1.18 matches photo during winter inversion quite well
     diffractionModifier = 1.18
     earthRadius = sqrt(dot(pRef, pRef)) * diffractionModifier
-    earthCurve = makeEarthCurve(earthRadius, distMax, distStep)
-    println(@sprintf("Earth radius is %f", earthRadius))
-    xMax = Int64(trunc( (angleMax-angleMin)/angleStep ))+1
-    outWidth  = xMax+1
-    outHeight = size(range(vertAngleMin, vertAngleMax, step=angleStep))[1]+1
+    earthCurve  = makeEarthCurve(earthRadius, distMax, distStep)
+    xMax        = Int64(trunc( (angleMax-angleMin)/angleStep ))+1
+    outWidth    = xMax+1
+    outHeight   = size(range(vertAngleMin, vertAngleMax, step=angleStep))[1]+1
+    println(@sprintf("Earth radius is %f (diffration %f)", earthRadius, diffractionModifier))
     println(@sprintf("Output size is %d x %d pixels", outWidth, outHeight))
     println(@sprintf("Output resolution is %f mrad per pixel or %f pixels per degree", angleStep * 1000.0, 1/toDegrees(angleStep)))
     output = zeros(UInt16, outHeight, outWidth)
     distances = range(0, distMax, step=distStep)
-    for x in 0:xMax
+    Threads.@threads for x in 0:xMax
+        #println(@sprintf("Rendering line %d of %d", x, xMax))
         azimuth = angleMin + x*angleStep
         cosAz   = cos(azimuth)
         sinAz   = sin(azimuth)
@@ -223,19 +219,16 @@ function makeDistMap(eye::PositionLLH, srtmRange::SrtmRange, heightMap::Matrix{I
         index         = 1
         direction     = vNorth*cosAz + vEast*sinAz
         for dist in distances
-            point = pRef + dist * direction;
+            #point = pRef + dist * direction;
+            point = [pRef[1]+dist*direction[1], pRef[2]+dist*direction[2], pRef[3]+dist*direction[3]]
             llh = xyz_to_llh(wgs84, PositionXYZ(point[1], point[2], point[3]))
             rayCastHeight = h0 + sin(vertAngle) * dist
-            terrainHeight = earthCurve[index] + getHeight(srtmRange, heightMap, llh.lat, llh.lon)
-            #println(@sprintf("dist=%f cast=%f, terr=%f, va=%f", dist, rayCastHeight, terrainHeight, vertAngle ))
-            #sleep(0.1)
+            terrainHeight = earthCurve[index] + getHeight(latLonRange, heightMap, llh.lat, llh.lon)
             if terrainHeight > rayCastHeight 
                 newVertAngle = atan((terrainHeight-h0)/dist)
                 yTop = Int64(trunc( (vertAngleMax-newVertAngle)/angleStep ))
                 yBot = Int64(trunc( (vertAngleMax-   vertAngle)/angleStep ))
-                v = Int64(trunc( dist / distStep )) 
-                #println(@sprintf("x=%d, yTop=%d, yBot=%d, val=%d, newAngle=%f", x, yTop, yBot, v, newVertAngle))
-                #sleep(0.1)
+                v = UInt16(trunc( dist / distStep )) 
                 for y in yTop:yBot 
                     output[y, x+1] = v
                 end
@@ -244,7 +237,56 @@ function makeDistMap(eye::PositionLLH, srtmRange::SrtmRange, heightMap::Matrix{I
             index = index + 1
         end
     end
+
+    println("HILL TEST CODE ---- ")
+    # TEST code
+    hills = CSV.File("data-cz-prom100.csv") |> DataFrames.DataFrame
+    # convert to ours azimuth, angle above horizon and distance - project into 
+    hill_to_xyz(ellipsoid::Ellipsoid, dfRow)::PositionXYZ = llh_to_xyz(wgs84, PositionLLH(dfRow["Latitude"], dfRow["Longitude"], dfRow["Elevation"])) 
+    mLocalToWorld = hcat(vEast,vNorth,-vDown)
+    mWorldToLocal = inv(mLocalToWorld)
+    for hill in eachrow(hills)
+        hill_world = hill_to_xyz(wgs84, hill)
+        hill_local_xyz = mWorldToLocal * [hill_world.x, hill_world.y, hill_world.z]
+        hill_local_xyz[3] = hill_local_xyz[3] - sqrt(dot(pRef, pRef))
+        distance = sqrt(dot(hill_local_xyz, hill_local_xyz))
+        azimuth  = toDegrees(atan(hill_local_xyz[1], hill_local_xyz[2])) # goes from north to east so y/x is swapped
+        #print(hill["Mountain"])
+        if azimuth < 0
+            azimuth = azimuth + 360
+        end
+        if (azimuth < toDegrees(angleMin) || azimuth > toDegrees(angleMax))
+#            println(@sprintf(" is out of visible azimuths (%f not in interval from %f tp %f", azimuth, toDegrees(angleMin), toDegrees(angleMax)))
+            continue
+        end
+        if (distance > distMax)
+ #           println(@sprintf(" is out of range (%f is greater than %f)", distance, distMax))
+            continue
+        end
+        println(@sprintf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Mountain"], azimuth, distance/1000.0))
+    end
+    
     return output
+end
+
+
+function extractHorizon(distMap::Matrix{UInt16})
+    nRows = size(distMap)[1]
+    nCols = size(distMap)[2]
+    #ouput = Array{Int16}(undef, nRows, nCols)
+    output = zeros(N0f8, nRows, nCols)
+    Threads.@threads for row in 2:nRows
+        for col in 1:nCols
+            diff::UInt8 = clamp(abs(reinterpret(Int16,distMap[row-1,col]) - reinterpret(Int16,distMap[row,col])), 0, 255)
+            output[row, col] = reinterpret(N0f8, diff)
+        end
+    end
+    return output
+end
+
+
+function tryMountains(distMap::Matrix{UInt16})
+
 end
 
 # Info (from https://www.udeuschle.de/panoramas/makepanoramas_en.htm)
@@ -255,20 +297,23 @@ end
 
 function main()
     tileDir   = "d:\\_disk_d_old\\devel-python\\panorama\\data_srtm"
-    srtmRange = SrtmRange(47, 15, 50, 21)
+    latLonRange = LatLonRange(47, 15, 50, 21)
     #eyePos    = PositionLLH(49.5460, 18.448, 1330.0)
     eyePos = PositionLLH(50.08309, 17.23094, 1510)
 
-    heightMap=loadData(srtmRange, tileDir)
+    heightMap=loadData(latLonRange, tileDir)
     #saveHeightMap(data)
-    output = makeDistMap(eyePos, srtmRange, heightMap)
+    distMap = makeDistMap(eyePos, latLonRange, heightMap)
    
-    minValue = minimum(output)
-    maxValue = maximum(output)  
+    minValue = minimum(distMap)
+    maxValue = maximum(distMap)  
     println(@sprintf("min=%d max=%d", minValue, maxValue))  
-    norm = Gray.(output/maxValue)
     println("Saving distmap-gray.png")
-    save("disttmap-gray.png", norm)   
+    Images.save("disttmap-gray.png", Images.Gray.(distMap/maxValue)) 
+
+    println("Saving horizon.png....")
+    hrz=extractHorizon(distMap)
+    Images.save("horizon.png", Images.Gray.(hrz))
     
     # This can be fun: https://wiki.flightgear.org/Atmospheric_light_scattering
     # http://www.science-and-fiction.org/rendering/als.html
