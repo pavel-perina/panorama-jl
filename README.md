@@ -34,8 +34,8 @@ Loading tile 024/028 lat=50, lon=20
   ⋮ 
 Loading tile 025/028 lat=50, lon=16
 Loading tile 026/028 lat=50, lon=18
-Earth radius is 7513 km (diffraction 1.180000)
-Output size is 7855 x 2619 pixels
+Earth radius is 6367.1 km (diffraction x1.18)
+Output size is 7855 x 901 pixels
 Output resolution is 0.100000 mrad per pixel or 174.532925 pixels per degree
 HILL TEST CODE ---- 
            Lysá hora is possibly visible at azimuth 123.8, distance 106.0 km
@@ -49,3 +49,7 @@ min=0 max=2376
 Saving distmap-gray.png
 Saving horizon.png
 ```
+
+## Images and comparison
+
+![](pano-20210828.png)
