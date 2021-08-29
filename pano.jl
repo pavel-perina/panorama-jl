@@ -3,8 +3,8 @@ import FixedPointNumbers: N0f8
 import Images
 import CSV, DataFrames
 
-toRadians(α) = α / 180.0 * π
-toDegrees(α) = α * 180.0 / π
+toRadians(α::Float64) = α / 180.0 * π
+toDegrees(α::Float64) = α * 180.0 / π
 
 #===========================================
   ____            _   _ _   _ _
@@ -21,6 +21,7 @@ struct PositionLLH
     height::Float64
 end
 
+
 struct PositionXYZ
     x::Float64
     y::Float64
@@ -28,7 +29,6 @@ struct PositionXYZ
 end
 
 
-### WGS84 utils
 abstract type Ellipsoid
 end
 
@@ -72,6 +72,7 @@ function llh_to_xyz(ellipsoid::Wgs84, llh::PositionLLH)::PositionXYZ
     return PositionXYZ(x,y,z)
 end
 
+
 # TODO: make it work for south and west
 function xyz_to_llh(ellipsoid::Wgs84, xyz::PositionXYZ)::PositionLLH
     e²       = ellipsoid.e²
@@ -84,6 +85,7 @@ function xyz_to_llh(ellipsoid::Wgs84, xyz::PositionXYZ)::PositionLLH
     return PositionLLH(toDegrees(lat), toDegrees(lon), height)
 end
 
+
 function llh_to_xyz(ellipsioid::SphericalEarth, llh::PositionLLH)::PositionXYZ
     Φ    = toRadians(llh.lat)
     λ    = toRadians(llh.lon)
@@ -95,6 +97,7 @@ function llh_to_xyz(ellipsioid::SphericalEarth, llh::PositionLLH)::PositionXYZ
     z    = v * sin(Φ)
     return PositionXYZ(x,y,z)
 end
+
 
 function xyz_to_llh(ellipsoid::SphericalEarth, xyz::PositionXYZ)::PositionLLH
     v      = sqrt(xyz.x*xyz.x + xyz.y*xyz.y + xyz.z*xyz.z) 
@@ -157,27 +160,30 @@ function loadData(range::LatLonRange, tileDir)
     # Note: array is indexed by row, column and starting index is 1
     data = Array{UInt16}(undef, dataHeight, dataWidth)
     progress = 0
-    for lat in range.minLat:range.maxLat
-        Threads.@threads for lon in range.minLon:range.maxLon
-            # Print progress
+    progressLock = Threads.SpinLock()
+    Threads.@threads for i in 0:(nTilesTotal-1)
+        lat = range.minLat + div(i, nTilesHoriz)
+        lon = range.minLon + mod(i, nTilesHoriz)
+        # Print progress
+        lock(progressLock) do
             progress = progress + 1
             println(@sprintf("Loading tile %03d/%03d lat=%02d, lon=%02d", progress, nTilesTotal, lat, lon))
-            # Load tile
-            tile = Array{Int16}(undef, 1201, 1201)
-            path = getHgtFilePath(lat, lon, tileDir)
-            io = open(path, "r")
-            read!(io, tile)
-            close(io)
-            # Fix endianity, clamp, transpose and copy to data
-            tile .= ntoh.(tile)
-            clamp!(tile, 0, 6000)
-            tile = transpose(tile)
-            rOffset = (range.maxLat-lat) * 1200
-            cOffset = (lon-range.minLon) * 1200
-            for r in 1:1201
-                @simd for c in 1:1201
-                    data[rOffset+r, cOffset+c] = tile[r, c]
-                end
+        end
+        # Load tile
+        tile = Array{Int16}(undef, 1201, 1201)
+        path = getHgtFilePath(lat, lon, tileDir)
+        io = open(path, "r")
+        read!(io, tile)
+        close(io)
+        # Fix endianity, clamp, transpose and copy to data
+        tile .= ntoh.(tile)
+        clamp!(tile, 0, 6000)
+        tile = transpose(tile)
+        rOffset = (range.maxLat-lat) * 1200
+        cOffset = (lon-range.minLon) * 1200
+        for r in 1:1201
+            @simd for c in 1:1201
+                data[rOffset+r, cOffset+c] = tile[r, c]
             end
         end
     end
@@ -186,9 +192,9 @@ end
 
 
 function saveHeightMap(data)
-   minValue = minimum(data)
+#  minValue = minimum(data)
    maxValue = maximum(data)
-   norm = Gray.(data/maxValue)
+   norm = Images.Gray.(data/maxValue)
    println("Saving heightmap-gray.png")
    save("heightmap-gray.png", norm)
 end
@@ -206,53 +212,77 @@ end
 
 makeEarthCurve(radius, distMax, distStep) = [sqrt(radius*radius-x*x)-radius for x=range(0, distMax, step=distStep)]
 
+struct ViewPort
+    ellipsoid::Ellipsoid
+    eye::PositionLLH
 
-function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matrix{UInt16})
+    angleMin::Float64
+    angleMax::Float64
+    vertAngleMin::Float64
+    vertAngleMax::Float64
+    angleStep::Float64
 
-    #ellipsoid  = Wgs84()
-    ellipsoid = SphericalEarth()
-    eyeXYZ = llh_to_xyz(ellipsoid, eye)
+    distMax::Float64
+    distStep::Float64
+
+    refractionCoef::Float64
+
+    vUp::Vector{Float64}
+    vNorth::Vector{Float64}
+    vEast::Vector{Float64}
+
+    outWidth::Int
+    outHeight::Int
+
+    function ViewPort(ellipsoid::Ellipsoid, eye::PositionLLH, azimuthMinR, azimuthMaxR, elevationMinR, elevationMaxR, angularStepR, distMaxM, refractionCoef)
+        distStep = 100.0
+        eyeXYZ = llh_to_xyz(ellipsoid, eye)
+        pRef   = [eyeXYZ.x; eyeXYZ.y; eyeXYZ.z]
+        vZ     = [0.0; 0.0; 1.0]
+        vUp    = normalize(pRef)
+        vEast  = normalize(cross(-vUp,vZ))
+        vNorth = normalize(cross(vEast,-vUp))
+
+        xMax        = Int64(trunc( (azimuthMaxR-azimuthMinR)/angularStepR ))+1
+        outWidth    = xMax+1
+        outHeight   = size(range(elevationMinR, elevationMaxR, step=angularStepR))[1]+1
     
-    angleMin  = toRadians( 90.0)
-    angleMax  = toRadians(135.0)
-    angleStep = 0.0001
-    distStep  = 100.0
-    distMax   = 250.0*1000.0
+        new(ellipsoid, eye,
+            azimuthMinR, azimuthMaxR, elevationMinR, elevationMaxR, angularStepR, 
+            distMaxM, distStep, 
+            refractionCoef,
+            vUp, vNorth, vEast,
+            outWidth, outHeight)
+    end
+end
 
-#    vertAngleMin = toRadians(-5.0)
-#    vertAngleMax = toRadians( 2.0)
-# This matches reference output from panorama generator
-    vertAngleMin = -0.0560
-    vertAngleMax =  0.0339
 
-    pRef   = [eyeXYZ.x, eyeXYZ.y, eyeXYZ.z]
-    vZ     = [0.0, 0.0, 1.0]
-    vDown  = -normalize(pRef)
-    vEast  = normalize(cross(vDown,vZ))
-    vNorth = normalize(cross(vEast,vDown))
-# Note: 1.18 matches photo during winter inversion quite well
-    refractionModifier = 1.18
-    earthRadius = sqrt(dot(pRef, pRef)) * refractionModifier
-    earthCurve  = makeEarthCurve(earthRadius, distMax, distStep)
-    xMax        = Int64(trunc( (angleMax-angleMin)/angleStep ))+1
-    outWidth    = xMax+1
-    outHeight   = size(range(vertAngleMin, vertAngleMax, step=angleStep))[1]+1
-    println(@sprintf("Earth radius is %6.1f km (refraction x%4.2f)", earthRadius/refractionModifier/1000.0, refractionModifier))
-    println(@sprintf("Output size is %d x %d pixels", outWidth, outHeight))
-    println(@sprintf("Output resolution is %f mrad per pixel or %f pixels per degree", angleStep * 1000.0, 1/toDegrees(angleStep)))
-    output      = zeros(UInt16, outHeight, outWidth)
-    distances   = range(0, distMax, step=distStep)
-    #=Threads.@threads=# for x in 0:xMax
+function eyeVec(vp::ViewPort)::Vector{Float64}
+    eyeXYZ = llh_to_xyz(vp.ellipsoid, vp.eye)
+    return [eyeXYZ.x; eyeXYZ.y; eyeXYZ.z]
+end
+
+
+function makeDistMap(vp::ViewPort, latLonRange::LatLonRange, heightMap::Matrix{UInt16})::Matrix{UInt16}
+    pRef = eyeVec(vp)
+    earthRadius = sqrt(dot(pRef, pRef)) * vp.refractionCoef
+    earthCurve  = makeEarthCurve(earthRadius, vp.distMax, vp.distStep)
+    println(@sprintf("Earth radius is %6.1f km (refraction x%4.2f)", earthRadius/vp.refractionCoef/1000.0, vp.refractionCoef))
+    println(@sprintf("Output size is %d x %d pixels", vp.outWidth, vp.outHeight))
+    println(@sprintf("Output resolution is %f mrad per pixel or %f pixels per degree", vp.angleStep * 1000.0, 1.0/toDegrees(vp.angleStep)))
+    output      = zeros(UInt16, vp.outHeight, vp.outWidth)
+    distances   = range(0.0, vp.distMax, step=vp.distStep)
+    Threads.@threads for x in 0:(vp.outWidth-1)
         #println(@sprintf("Rendering line %d of %d", x, xMax))
-        azimuth = angleMin + x*angleStep
+        azimuth = vp.angleMin + x*vp.angleStep
         cosAz   = cos(azimuth)
         sinAz   = sin(azimuth)
 
-        vertAngle     = vertAngleMin
-        h0            = eye.height
+        vertAngle     = vp.vertAngleMin
+        h0            = vp.eye.height
         rayCastHeight = h0
         index         = 1
-        direction     = vNorth*cosAz + vEast*sinAz
+        direction     = vp.vNorth*cosAz + vp.vEast*sinAz
         point = [0.0,0.0,0.0]
         for dist in distances
             #point = pRef + dist * direction;
@@ -260,14 +290,14 @@ function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matr
             point[1] = pRef[1]+dist*direction[1]
             point[2] = pRef[2]+dist*direction[2]
             point[3] = pRef[3]+dist*direction[3]
-            llh = xyz_to_llh(ellipsoid, PositionXYZ(point[1], point[2], point[3]))
+            llh = xyz_to_llh(vp.ellipsoid, PositionXYZ(point[1], point[2], point[3]))
             rayCastHeight = h0 + sin(vertAngle) * dist
             terrainHeight = earthCurve[index] + getHeight(latLonRange, heightMap, llh.lat, llh.lon)
             if terrainHeight > rayCastHeight 
                 newVertAngle = atan((terrainHeight-h0)/dist)
-                yTop = Int64(trunc( (vertAngleMax-newVertAngle)/angleStep ))
-                yBot = Int64(trunc( (vertAngleMax-   vertAngle)/angleStep ))
-                v = UInt16(trunc( dist / distStep ))
+                yTop = Int64(trunc( (vp.vertAngleMax-newVertAngle)/vp.angleStep ))
+                yBot = Int64(trunc( (vp.vertAngleMax-   vertAngle)/vp.angleStep ))
+                v = UInt16(trunc( dist / vp.distStep ))
                 for y in yTop:yBot 
                     output[y, x+1] = v
                 end
@@ -302,8 +332,7 @@ function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matr
         elevationAngle=atan(distance, hill_local_xyz[3])
         println(@sprintf("hill=%f, dist=%f", hill_local_xyz[3], distance))
         println(@sprintf(", pixel.x,y=%5.0f,%5.0f", (toRadians(azimuth)-angleMin)/angleStep , (vertAngleMax-elevationAngle)/angleStep ))
-    end
-    
+    end    
     return output
 end
 
@@ -343,11 +372,13 @@ end
 function main()
     tileDir     = "d:\\_disk_d_old\\devel-python\\panorama\\data_srtm"
     latLonRange = LatLonRange(47, 15, 50, 21)
-    eyePos      = PositionLLH(50.08309, 17.23094, 1510)
+    eye         = PositionLLH(50.08309, 17.23094, 1510)
 
     heightMap = loadData(latLonRange, tileDir)
     #saveHeightMap(data)
-    distMap   = makeDistMap(eyePos, latLonRange, heightMap)
+    ellipsoid = SphericalEarth()
+    vp = ViewPort(ellipsoid, eye, toRadians( 90.0), toRadians(135.0), -0.0560, 0.0339, 0.0001, 250.0e3, 1.18)
+    distMap   = makeDistMap(vp, latLonRange, heightMap)
 
     minValue = minimum(distMap)
     maxValue = maximum(distMap)
@@ -357,7 +388,7 @@ function main()
 
     println("Saving horizon.png....")
     hrz=extractHorizon(distMap)
-    Images.save("horizon.png", Images.Gray.(hrz))
+    Images.save("horizon.png", hrz)
 
     # This can be fun: https://wiki.flightgear.org/Atmospheric_light_scattering
     # http://www.science-and-fiction.org/rendering/als.html
