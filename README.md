@@ -8,16 +8,19 @@ As of 2021-08-28 it's for personal use as it contains many hard-coded variables 
 
 Original code for panorama rendering was written in Python and unfinished/unpolished.
 I've found https://www.udeuschle.de/panoramas/makepanoramas_en.htm that was by far superior.
-Program in Python run in order of tens of minutes (2.6GHz Core2Duo) and manual measuring of angle (encoded in x position) and distance (encoded in color) to find far away hills on the map was not convenient. It was enough to confirm that High Tatras are visible from Praděd and if Grossglocker is visible from few places around Brno. Nothing else.
+Program in Python run in order of tens of minutes (2.6GHz Core2Duo) and manual measuring of angle (encoded in x position) and distance (encoded in color) to find far away hills on the map was not convenient. It was enough to confirm that High Tatras are visible from Praděd and if Schneeberg is visible from few places around Brno. Nothing else.
 
-But because I found Julia language accidentally (by finding JuliaMono font) and it stated that it's way faster than Python, I tried it and after three evenings extended it beyond original functionality. Hopefully program runs in about 10 seconds.
+But because I found Julia language accidentally (by finding JuliaMono font) and it stated that it's way faster than Python, I tried it and after three evenings extended it beyond original functionality. Hopefully program runs in order of seconds on historic i5-4590@3.3GHz using three cores.
 
 Honestly, for every other Python script I wrote speed does not matter.
 
 ## TODOs
 
-* [ ] Automatic anotations (summits from database, azimuths, horizon line)
+* [ ] WIP: Automatic anotations (summits from database, azimuths, horizon line)
+* [ ] Make it work over any azimuth range (e.g. 350° to 10°, 170° to -170°)
 * [ ] Summit database for Slovakia and Alps, some manual entries for local hills
+* [ ] WIP: Optimizations (wgs84->sphere), remove atan
+* [ ] WIP: Object oriented coded (how classes work in Julia?)
 * [ ] Coloring (and shading?), legend (color->distance)
 * [ ] Input data interpolation
 * [ ] Test for western/southern hemisphere? I don't need it.

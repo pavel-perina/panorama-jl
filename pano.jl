@@ -3,6 +3,9 @@ import FixedPointNumbers: N0f8
 import Images
 import CSV, DataFrames
 
+toRadians(α) = α / 180.0 * π
+toDegrees(α) = α * 180.0 / π
+
 #===========================================
   ____            _   _ _   _ _
  / ___| ___  ___ | | | | |_(_) |___
@@ -24,30 +27,36 @@ struct PositionXYZ
     z::Float64
 end
 
+
 ### WGS84 utils
-struct Ellipsoid
+abstract type Ellipsoid
+end
+
+
+struct Wgs84 <: Ellipsoid
     a::Float64
     b::Float64
     f::Float64
     e::Float64
     e²::Float64
+    function Wgs84()
+        a  = 6378137.0
+        f  = 1.0/298.257223563
+        b  = a*(1.0-f)
+        e² = 1.0 - b*b/(a*a) # or f * (2.0-f)
+        e  = sqrt(e²)
+        new(a,b,f,e,e²)
+    end
 end
 
-function createWgs84Ellipsoid()
-    a  = 6378137.0
-    f  = 1.0/298.257223563
-    b  = a*(1.0-f)
-    e² = 1.0 - b*b/(a*a) # or f * (2.0-f)
-    e  = sqrt(e²)
-    return Ellipsoid(a,b,f,e,e²)
+
+struct SphericalEarth <: Ellipsoid
+    r::Float64
+    SphericalEarth() = new(6378137.0)
 end
 
-wgs84 = createWgs84Ellipsoid()
 
-toRadians(α) = α / 180.0 * π
-toDegrees(α) = α * 180.0 / π
-
-function llh_to_xyz(ellipsoid::Ellipsoid, llh::PositionLLH)::PositionXYZ
+function llh_to_xyz(ellipsoid::Wgs84, llh::PositionLLH)::PositionXYZ
     Φ    = toRadians(llh.lat)
     λ    = toRadians(llh.lon)
     h    = llh.height
@@ -64,7 +73,7 @@ function llh_to_xyz(ellipsoid::Ellipsoid, llh::PositionLLH)::PositionXYZ
 end
 
 # TODO: make it work for south and west
-function xyz_to_llh(ellipsoid::Ellipsoid, xyz::PositionXYZ)::PositionLLH
+function xyz_to_llh(ellipsoid::Wgs84, xyz::PositionXYZ)::PositionLLH
     e²       = ellipsoid.e²
     p        = sqrt(xyz.x*xyz.x + xyz.y*xyz.y)
     lon      = atan(xyz.y / xyz.x)
@@ -73,7 +82,29 @@ function xyz_to_llh(ellipsoid::Ellipsoid, xyz::PositionXYZ)::PositionLLH
     lat      = atan((xyz.z + e²*v*sin(lat_init))/p)
     height   = (p/cos(lat))-v
     return PositionLLH(toDegrees(lat), toDegrees(lon), height)
-end    
+end
+
+function llh_to_xyz(ellipsioid::SphericalEarth, llh::PositionLLH)::PositionXYZ
+    Φ    = toRadians(llh.lat)
+    λ    = toRadians(llh.lon)
+    h    = llh.height
+    cosΦ = cos(Φ)
+    v    = ellipsioid.r + h
+    x    = v * cosΦ * cos(λ)
+    y    = v * cosΦ * sin(λ)
+    z    = v * sin(Φ)
+    return PositionXYZ(x,y,z)
+end
+
+function xyz_to_llh(ellipsoid::SphericalEarth, xyz::PositionXYZ)::PositionLLH
+    v      = sqrt(xyz.x*xyz.x + xyz.y*xyz.y + xyz.z*xyz.z) 
+    height = v - ellipsoid.r
+    lon    = atan(xyz.y, xyz.x)    
+    lat    = asin(xyz.z/v)
+    return PositionLLH(toDegrees(lat), toDegrees(lon), height)
+end
+
+
 
 # GeoUtils test
 #testXYZ = llh_to_xyz(wgs84, PositionLLH(49.0, 16.0, 225.0))
@@ -178,8 +209,9 @@ makeEarthCurve(radius, distMax, distStep) = [sqrt(radius*radius-x*x)-radius for 
 
 function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matrix{UInt16})
 
-    wgs84  = createWgs84Ellipsoid()
-    eyeXYZ = llh_to_xyz(wgs84, eye)
+    #ellipsoid  = Wgs84()
+    ellipsoid = SphericalEarth()
+    eyeXYZ = llh_to_xyz(ellipsoid, eye)
     
     angleMin  = toRadians( 90.0)
     angleMax  = toRadians(135.0)
@@ -199,18 +231,18 @@ function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matr
     vEast  = normalize(cross(vDown,vZ))
     vNorth = normalize(cross(vEast,vDown))
 # Note: 1.18 matches photo during winter inversion quite well
-    diffractionModifier = 1.18
-    earthRadius = sqrt(dot(pRef, pRef)) * diffractionModifier
+    refractionModifier = 1.18
+    earthRadius = sqrt(dot(pRef, pRef)) * refractionModifier
     earthCurve  = makeEarthCurve(earthRadius, distMax, distStep)
     xMax        = Int64(trunc( (angleMax-angleMin)/angleStep ))+1
     outWidth    = xMax+1
     outHeight   = size(range(vertAngleMin, vertAngleMax, step=angleStep))[1]+1
-    println(@sprintf("Earth radius is %6.1f km (diffraction x%4.2f)", earthRadius/diffractionModifier/1000.0, diffractionModifier))
+    println(@sprintf("Earth radius is %6.1f km (refraction x%4.2f)", earthRadius/refractionModifier/1000.0, refractionModifier))
     println(@sprintf("Output size is %d x %d pixels", outWidth, outHeight))
     println(@sprintf("Output resolution is %f mrad per pixel or %f pixels per degree", angleStep * 1000.0, 1/toDegrees(angleStep)))
     output      = zeros(UInt16, outHeight, outWidth)
     distances   = range(0, distMax, step=distStep)
-    Threads.@threads for x in 0:xMax
+    #=Threads.@threads=# for x in 0:xMax
         #println(@sprintf("Rendering line %d of %d", x, xMax))
         azimuth = angleMin + x*angleStep
         cosAz   = cos(azimuth)
@@ -221,17 +253,21 @@ function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matr
         rayCastHeight = h0
         index         = 1
         direction     = vNorth*cosAz + vEast*sinAz
+        point = [0.0,0.0,0.0]
         for dist in distances
             #point = pRef + dist * direction;
-            point = [pRef[1]+dist*direction[1], pRef[2]+dist*direction[2], pRef[3]+dist*direction[3]]
-            llh = xyz_to_llh(wgs84, PositionXYZ(point[1], point[2], point[3]))
+            #point = [pRef[1]+dist*direction[1], pRef[2]+dist*direction[2], pRef[3]+dist*direction[3]]
+            point[1] = pRef[1]+dist*direction[1]
+            point[2] = pRef[2]+dist*direction[2]
+            point[3] = pRef[3]+dist*direction[3]
+            llh = xyz_to_llh(ellipsoid, PositionXYZ(point[1], point[2], point[3]))
             rayCastHeight = h0 + sin(vertAngle) * dist
             terrainHeight = earthCurve[index] + getHeight(latLonRange, heightMap, llh.lat, llh.lon)
             if terrainHeight > rayCastHeight 
                 newVertAngle = atan((terrainHeight-h0)/dist)
                 yTop = Int64(trunc( (vertAngleMax-newVertAngle)/angleStep ))
                 yBot = Int64(trunc( (vertAngleMax-   vertAngle)/angleStep ))
-                v = UInt16(trunc( dist / distStep )) 
+                v = UInt16(trunc( dist / distStep ))
                 for y in yTop:yBot 
                     output[y, x+1] = v
                 end
@@ -240,7 +276,7 @@ function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matr
             index = index + 1
         end
     end
-
+    return output
     println("SUMMIT TEST CODE ---- ")
     # TEST code
     hills = CSV.File("data-cz-prom100.tsv") |> DataFrames.DataFrame
@@ -249,7 +285,7 @@ function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matr
     mLocalToWorld = hcat(vEast,vNorth,-vDown)
     mWorldToLocal = inv(mLocalToWorld)
     for hill in eachrow(hills)
-        hill_world = hill_to_xyz(wgs84, hill)
+        hill_world = hill_to_xyz(ellipsoid, hill)
         hill_local_xyz = mWorldToLocal * [hill_world.x, hill_world.y, hill_world.z]
         hill_local_xyz[3] = hill_local_xyz[3] - sqrt(dot(pRef, pRef))
         distance = sqrt(dot(hill_local_xyz, hill_local_xyz))
@@ -258,15 +294,14 @@ function makeDistMap(eye::PositionLLH, latLonRange::LatLonRange, heightMap::Matr
         if azimuth < 0
             azimuth = azimuth + 360
         end
-        if (azimuth < toDegrees(angleMin) || azimuth > toDegrees(angleMax))
-#            println(@sprintf(" is out of visible azimuths (%f not in interval from %f tp %f", azimuth, toDegrees(angleMin), toDegrees(angleMax)))
+        if (distance > distMax || azimuth < toDegrees(angleMin) || azimuth > toDegrees(angleMax))
             continue
         end
-        if (distance > distMax)
- #           println(@sprintf(" is out of range (%f is greater than %f)", distance, distMax))
-            continue
-        end
-        println(@sprintf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Summit"], azimuth, distance/1000.0))
+        print(@sprintf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Summit"], azimuth, distance/1000.0))
+        # FIXME: do correction for refraction (?)
+        elevationAngle=atan(distance, hill_local_xyz[3])
+        println(@sprintf("hill=%f, dist=%f", hill_local_xyz[3], distance))
+        println(@sprintf(", pixel.x,y=%5.0f,%5.0f", (toRadians(azimuth)-angleMin)/angleStep , (vertAngleMax-elevationAngle)/angleStep ))
     end
     
     return output
@@ -287,9 +322,16 @@ function extractHorizon(distMap::Matrix{UInt16})
     return output
 end
 
+function drawHorizon()
+end
 
-function tryMountains(distMap::Matrix{UInt16})
+function drawAzimuths()
+end
 
+function testSummit(distMap::Matrix{UInt16})
+end
+
+function drawSummits()
 end
 
 # Info (from https://www.udeuschle.de/panoramas/makepanoramas_en.htm)
@@ -311,7 +353,7 @@ function main()
     maxValue = maximum(distMap)
     println(@sprintf("min=%d max=%d", minValue, maxValue))
     println("Saving distmap-gray.png")
-    Images.save("disttmap-gray.png", Images.Gray.(distMap/maxValue))
+    Images.save("distmap-gray.png", Images.Gray.(distMap/maxValue))
 
     println("Saving horizon.png....")
     hrz=extractHorizon(distMap)
