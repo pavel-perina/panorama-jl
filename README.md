@@ -17,10 +17,10 @@ Honestly, for every other Python script I wrote speed does not matter.
 ## TODOs
 
 * [ ] WIP: Automatic anotations (summits from database, azimuths, horizon line)
-* [ ] Make it work over any azimuth range (e.g. 350° to 10°, 170° to -170°)
+* [ ] TEST: Make it work over any azimuth range (e.g. 350° to 10°, 170° to -170°)
 * [ ] Summit database for Slovakia and Alps, some manual entries for local hills
 * [ ] WIP: Optimizations (wgs84->sphere), remove atan
-* [ ] WIP: Object oriented coded (how classes work in Julia?)
+* [ ] WIP: Object oriented code (how classes work in Julia?)
 * [ ] Coloring (and shading?), legend (color->distance)
 * [ ] Input data interpolation
 * [ ] Test for western/southern hemisphere? I don't need it.

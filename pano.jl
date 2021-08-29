@@ -108,6 +108,8 @@ function xyz_to_llh(ellipsoid::SphericalEarth, xyz::PositionXYZ)::PositionLLH
 end
 
 
+xyz_to_vector(xyz::PositionXYZ)::Vector{Float64} = [xyz.x; xyz.y; xyz.z]
+
 
 # GeoUtils test
 #testXYZ = llh_to_xyz(wgs84, PositionLLH(49.0, 16.0, 225.0))
@@ -146,16 +148,16 @@ function loadData(range::LatLonRange, tileDir)
     dataWidth   = nTilesHoriz*1200+1
     dataHeight  = nTilesVert*1200+1
 
-    println(@sprintf("Requesting data for area %d°N %d°E - %d°N %d°E ... (aprox. %3.0fx%3.0f km).",
+    @printf("Requesting data for area %d°N %d°E - %d°N %d°E ... (aprox. %3.0fx%3.0f km).\n",
         range.minLat, range.minLon,
         range.maxLat, range.maxLon,
         (nTilesHoriz)*111.1*cos(range.minLat/180.0*π),
         (nTilesVert)*111.1
-        ))
-    println(@sprintf("I will read %dx%d=%d tiles, heightmap size is %dx%d (%d MB).",
+        )
+    @printf("I will read %dx%d=%d tiles, heightmap size is %dx%d (%d MB).\n",
         nTilesHoriz, nTilesVert, nTilesTotal,
         dataWidth, dataHeight, dataWidth*dataHeight*2/1000000
-        ))
+        )
 
     # Note: array is indexed by row, column and starting index is 1
     data = Array{UInt16}(undef, dataHeight, dataWidth)
@@ -167,7 +169,7 @@ function loadData(range::LatLonRange, tileDir)
         # Print progress
         lock(progressLock) do
             progress = progress + 1
-            println(@sprintf("Loading tile %03d/%03d lat=%02d, lon=%02d", progress, nTilesTotal, lat, lon))
+            @printf("Loading tile %03d/%03d lat=%02d, lon=%02d\n", progress, nTilesTotal, lat, lon)
         end
         # Load tile
         tile = Array{Int16}(undef, 1201, 1201)
@@ -236,8 +238,7 @@ struct ViewPort
 
     function ViewPort(ellipsoid::Ellipsoid, eye::PositionLLH, azimuthMinR, azimuthMaxR, elevationMinR, elevationMaxR, angularStepR, distMaxM, refractionCoef)
         distStep = 100.0
-        eyeXYZ = llh_to_xyz(ellipsoid, eye)
-        pRef   = [eyeXYZ.x; eyeXYZ.y; eyeXYZ.z]
+        pRef   = xyz_to_vector(llh_to_xyz(ellipsoid, eye))
         vZ     = [0.0; 0.0; 1.0]
         vUp    = normalize(pRef)
         vEast  = normalize(cross(-vUp,vZ))
@@ -269,13 +270,13 @@ function makeDistMap(vp::ViewPort, latLonRange::LatLonRange, heightMap::Matrix{U
     pRef = eyeVec(vp)
     earthRadius = sqrt(dot(pRef, pRef)) * vp.refractionCoef
     earthCurve  = makeEarthCurve(earthRadius, vp.distMax, vp.distStep)
-    println(@sprintf("Earth radius is %6.1f km (refraction x%4.2f)", earthRadius/vp.refractionCoef/1000.0, vp.refractionCoef))
-    println(@sprintf("Output size is %d x %d pixels", vp.outWidth, vp.outHeight))
-    println(@sprintf("Output resolution is %f mrad per pixel or %f pixels per degree", vp.angleStep * 1000.0, 1.0/toDegrees(vp.angleStep)))
+    @printf("Earth radius is %6.1f km (refraction x%4.2f)\n", earthRadius/vp.refractionCoef/1000.0, vp.refractionCoef)
+    @printf("Output size is %d x %d pixels\n", vp.outWidth, vp.outHeight)
+    @printf("Output resolution is %f mrad per pixel or %f pixels per degree\n", vp.angleStep * 1000.0, 1.0/toDegrees(vp.angleStep))
     output      = zeros(UInt16, vp.outHeight, vp.outWidth)
     distances   = range(0.0, vp.distMax, step=vp.distStep)
     Threads.@threads for x in 0:(vp.outWidth-1)
-        #println(@sprintf("Rendering line %d of %d", x, xMax))
+        #@printf("Rendering line %d of %d", x, xMax)
         azimuth = vp.angleMin + x*vp.angleStep
         cosAz   = cos(azimuth)
         sinAz   = sin(azimuth)
@@ -312,7 +313,7 @@ function makeDistMap(vp::ViewPort, latLonRange::LatLonRange, heightMap::Matrix{U
 end
 
 
-function extractHorizon(distMap::Matrix{UInt16})
+function extractOutlines(distMap::Matrix{UInt16})
     nRows = size(distMap)[1]
     nCols = size(distMap)[2]
     #ouput = Array{Int16}(undef, nRows, nCols)
@@ -332,25 +333,52 @@ end
 function drawAzimuths()
 end
 
-function testSummit(distMap::Matrix{UInt16})
+
+function testPixel(distMap::Matrix{UInt16}, x::UInt64, y::UInt64, radius::Int64, value::UInt16, valueTolerance::UInt16)::Bool
+    if (x < radius+1) || (y < radius+1) || (x+radius> size(distMap)[2]) || (y+radius> size(distMap)[1])
+        return false
+    end
+    for row in (y-radius):(y+radius)
+        for col in (x-radius):(x+radius)
+            mapValue = distMap[row, col]
+            if (mapValue > value) && ((mapValue - value) <= valueTolerance)
+                return true
+            end
+            if (mapValue < value) && ((value - mapValue) <= valueTolerance)
+                return true
+            end
+        end
+    end
+    return false
 end
+
 
 function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
     # TODO: options
     hills = CSV.File("data-cz-prom100.tsv") |> DataFrames.DataFrame
     # convert to ours azimuth, angle above horizon and distance - project into 
     hill_to_xyz(ellipsoid::Ellipsoid, dfRow)::PositionXYZ = llh_to_xyz(ellipsoid, PositionLLH(dfRow["Latitude"], dfRow["Longitude"], dfRow["Elevation"])) 
+    # difference between true and seen earth curvature
+    elevationDropAtDistance(distance::Float64, radius::Float64)::Float64 = sqrt(radius*radius-distance*distance)-radius
+    function elevationDropCompensation(distance::Float64, radius::Float64, refractionCoef::Float64)::Float64 
+        return elevationDropAtDistance(distance, radius*refractionCoef) - elevationDropAtDistance(distance, radius)
+    end
+        
     mLocalToWorld = hcat(vp.vEast,vp.vNorth,vp.vUp)
     mWorldToLocal = inv(mLocalToWorld)
-    pRef = eyeVec(vp)    
+    #ground = PositionLLH(vp.eye.lat, vp.eye.lon, 0.0)
+    pRef = xyz_to_vector(llh_to_xyz(vp.ellipsoid, vp.eye))
+    earthRadius = sqrt(dot(pRef, pRef))
     for hill in eachrow(hills)
         hill_world = hill_to_xyz(vp.ellipsoid, hill)
         hill_local_xyz = mWorldToLocal * [hill_world.x; hill_world.y; hill_world.z]
-        hill_local_xyz[3] = hill_local_xyz[3] - sqrt(dot(pRef, pRef))
+#        hill_local_xyz[3] = hill_local_xyz[3] - earthRadius  <---- this gives weird altitutude, let's restore it in the same way as raytracer
+        hill_local_xyz[3] = 0.0
         distance = sqrt(dot(hill_local_xyz, hill_local_xyz))
         if distance > vp.distMax
             continue
         end
+        hill_local_xyz[3] = hill["Elevation"] + elevationDropAtDistance(distance, earthRadius * vp.refractionCoef) - vp.eye.height
         azimuth  = toDegrees(atan(hill_local_xyz[1], hill_local_xyz[2])) # goes from north to east so y/x is swapped
         #print(hill["Summit"])
         if azimuth < 0
@@ -359,11 +387,14 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
         if (azimuth < toDegrees(vp.angleMin) || azimuth > toDegrees(vp.angleMax))
             continue
         end
-        print(@sprintf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Summit"], azimuth, distance/1000.0))
-        # FIXME: do correction for refraction (?)
+        @printf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Summit"], azimuth, distance/1000.0)
         elevationAngle=atan(hill_local_xyz[3], distance)
-        println(@sprintf("hill=%f, dist=%f", hill_local_xyz[3], distance))
-        println(@sprintf(", pixel.x,y=%5.0f,%5.0f", (toRadians(azimuth)-vp.angleMin)/vp.angleStep , (vp.vertAngleMax-elevationAngle)/vp.angleStep ))
+#        @sprintf("              hill=%f+%f, dist=%f\n", hill_local_xyz[3], elevationDropCompensation(distance, earthRadius, vp.refractionCoef), distance)
+#        @sprintf("              , pixel.x,y=%5.0f,%5.0f\n", (toRadians(azimuth)-vp.angleMin)/vp.angleStep , (vp.vertAngleMax-elevationAngle)/vp.angleStep )
+        testX::UInt64 = round((toRadians(azimuth)-vp.angleMin)/vp.angleStep)
+        testY::UInt64 = round((vp.vertAngleMax-elevationAngle)/vp.angleStep)
+        visible::Bool = testPixel(distMap, testX, testY, 4, UInt16(trunc(distance/vp.distStep)), UInt16(5))
+        @printf(", visible=%s\n", visible)
     end
 end
 
@@ -381,19 +412,20 @@ function main()
     heightMap = loadData(latLonRange, tileDir)
     #saveHeightMap(data)
     ellipsoid = SphericalEarth()
+    #ellipsoid = Wgs84()
     vp = ViewPort(ellipsoid, eye, toRadians( 90.0), toRadians(135.0), -0.0560, 0.0339, 0.0001, 250.0e3, 1.18)
     distMap   = makeDistMap(vp, latLonRange, heightMap)
 
     minValue = minimum(distMap)
     maxValue = maximum(distMap)
-    println(@sprintf("min=%d max=%d", minValue, maxValue))
+    @printf("min=%d max=%d\n", minValue, maxValue)
     println("Saving distmap-gray.png")
     Images.save("distmap-gray.png", Images.Gray.(distMap/maxValue))
 
-    println("Extracting horizon")
-    hrz=extractHorizon(distMap)
-    println("Saving horizon.png")
-    Images.save("horizon.png", hrz)
+    println("Extracting outlines ...")
+    outlines=extractOutlines(distMap)
+    println("Saving outlines.png")
+    Images.save("outlines.png", outlines)
 
     println("Creating descriptions")
     drawSummits(vp, distMap)
