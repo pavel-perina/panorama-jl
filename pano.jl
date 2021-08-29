@@ -246,7 +246,9 @@ struct ViewPort
         xMax        = Int64(trunc( (azimuthMaxR-azimuthMinR)/angularStepR ))+1
         outWidth    = xMax+1
         outHeight   = size(range(elevationMinR, elevationMaxR, step=angularStepR))[1]+1
-    
+        if (azimuthMinR > azimuthMaxR)
+            azimuthMinR = azimuthMinR - 360
+        end    
         new(ellipsoid, eye,
             azimuthMinR, azimuthMaxR, elevationMinR, elevationMaxR, angularStepR, 
             distMaxM, distStep, 
@@ -307,33 +309,6 @@ function makeDistMap(vp::ViewPort, latLonRange::LatLonRange, heightMap::Matrix{U
         end
     end
     return output
-    println("SUMMIT TEST CODE ---- ")
-    # TEST code
-    hills = CSV.File("data-cz-prom100.tsv") |> DataFrames.DataFrame
-    # convert to ours azimuth, angle above horizon and distance - project into 
-    hill_to_xyz(ellipsoid::Ellipsoid, dfRow)::PositionXYZ = llh_to_xyz(ellipsoid, PositionLLH(dfRow["Latitude"], dfRow["Longitude"], dfRow["Elevation"])) 
-    mLocalToWorld = hcat(vEast,vNorth,-vDown)
-    mWorldToLocal = inv(mLocalToWorld)
-    for hill in eachrow(hills)
-        hill_world = hill_to_xyz(ellipsoid, hill)
-        hill_local_xyz = mWorldToLocal * [hill_world.x, hill_world.y, hill_world.z]
-        hill_local_xyz[3] = hill_local_xyz[3] - sqrt(dot(pRef, pRef))
-        distance = sqrt(dot(hill_local_xyz, hill_local_xyz))
-        azimuth  = toDegrees(atan(hill_local_xyz[1], hill_local_xyz[2])) # goes from north to east so y/x is swapped
-        #print(hill["Summit"])
-        if azimuth < 0
-            azimuth = azimuth + 360
-        end
-        if (distance > distMax || azimuth < toDegrees(angleMin) || azimuth > toDegrees(angleMax))
-            continue
-        end
-        print(@sprintf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Summit"], azimuth, distance/1000.0))
-        # FIXME: do correction for refraction (?)
-        elevationAngle=atan(distance, hill_local_xyz[3])
-        println(@sprintf("hill=%f, dist=%f", hill_local_xyz[3], distance))
-        println(@sprintf(", pixel.x,y=%5.0f,%5.0f", (toRadians(azimuth)-angleMin)/angleStep , (vertAngleMax-elevationAngle)/angleStep ))
-    end    
-    return output
 end
 
 
@@ -360,7 +335,36 @@ end
 function testSummit(distMap::Matrix{UInt16})
 end
 
-function drawSummits()
+function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
+    # TODO: options
+    hills = CSV.File("data-cz-prom100.tsv") |> DataFrames.DataFrame
+    # convert to ours azimuth, angle above horizon and distance - project into 
+    hill_to_xyz(ellipsoid::Ellipsoid, dfRow)::PositionXYZ = llh_to_xyz(ellipsoid, PositionLLH(dfRow["Latitude"], dfRow["Longitude"], dfRow["Elevation"])) 
+    mLocalToWorld = hcat(vp.vEast,vp.vNorth,vp.vUp)
+    mWorldToLocal = inv(mLocalToWorld)
+    pRef = eyeVec(vp)    
+    for hill in eachrow(hills)
+        hill_world = hill_to_xyz(vp.ellipsoid, hill)
+        hill_local_xyz = mWorldToLocal * [hill_world.x; hill_world.y; hill_world.z]
+        hill_local_xyz[3] = hill_local_xyz[3] - sqrt(dot(pRef, pRef))
+        distance = sqrt(dot(hill_local_xyz, hill_local_xyz))
+        if distance > vp.distMax
+            continue
+        end
+        azimuth  = toDegrees(atan(hill_local_xyz[1], hill_local_xyz[2])) # goes from north to east so y/x is swapped
+        #print(hill["Summit"])
+        if azimuth < 0
+            azimuth = azimuth + 360
+        end
+        if (azimuth < toDegrees(vp.angleMin) || azimuth > toDegrees(vp.angleMax))
+            continue
+        end
+        print(@sprintf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Summit"], azimuth, distance/1000.0))
+        # FIXME: do correction for refraction (?)
+        elevationAngle=atan(hill_local_xyz[3], distance)
+        println(@sprintf("hill=%f, dist=%f", hill_local_xyz[3], distance))
+        println(@sprintf(", pixel.x,y=%5.0f,%5.0f", (toRadians(azimuth)-vp.angleMin)/vp.angleStep , (vp.vertAngleMax-elevationAngle)/vp.angleStep ))
+    end
 end
 
 # Info (from https://www.udeuschle.de/panoramas/makepanoramas_en.htm)
@@ -386,9 +390,16 @@ function main()
     println("Saving distmap-gray.png")
     Images.save("distmap-gray.png", Images.Gray.(distMap/maxValue))
 
-    println("Saving horizon.png....")
+    println("Extracting horizon")
     hrz=extractHorizon(distMap)
+    println("Saving horizon.png")
     Images.save("horizon.png", hrz)
+
+    println("Creating descriptions")
+    drawSummits(vp, distMap)
+    println("All done")
+
+
 
     # This can be fun: https://wiki.flightgear.org/Atmospheric_light_scattering
     # http://www.science-and-fiction.org/rendering/als.html
