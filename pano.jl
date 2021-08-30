@@ -245,12 +245,20 @@ struct ViewPort
         vEast  = normalize(cross(-vUp,vZ))
         vNorth = normalize(cross(vEast,-vUp))
 
+        azimuthDiff = abs(azimuthMinR-azimuthMaxR)
+        if (azimuthDiff > 2.0*π)
+            throw(DomainError(azimuthDiff, "Azimuth difference should not exceed 2π"))
+        end
+        if (azimuthMinR > azimuthMaxR)
+            azimuthMinR = azimuthMinR - 2.0*π
+        end
+        if (azimuthMinR < 0.0 && azimuthMaxR < 0.0)
+            azimuthMinR = azimuthMinR + 2.0*π
+            azimuthMaxR = azimuthMaxR + 2.0*π
+        end
         xMax        = Int64(trunc( (azimuthMaxR-azimuthMinR)/angularStepR ))+1
         outWidth    = xMax+1
         outHeight   = size(range(elevationMinR, elevationMaxR, step=angularStepR))[1]+1
-        if (azimuthMinR > azimuthMaxR)
-            azimuthMinR = azimuthMinR - 360
-        end    
         new(ellipsoid, eye,
             azimuthMinR, azimuthMaxR, elevationMinR, elevationMaxR, angularStepR, 
             distMaxM, distStep, 
@@ -393,7 +401,7 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
         @printf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Summit"], azimuth, distance/1000.0)
         elevationAngle=atan(hill_local_xyz[3], distance)
 #        @printf("              hill=%f+%f, dist=%f\n", hill_local_xyz[3], elevationDropCompensation(distance, earthRadius, vp.refractionCoef), distance)
-        @printf("              , pixel.x,y=%5.0f,%5.0f\n", (toRadians(azimuth)-vp.angleMin)/vp.angleStep , (vp.vertAngleMax-elevationAngle)/vp.angleStep )
+#        @printf("              , pixel.x,y=%5.0f,%5.0f\n", (toRadians(azimuth)-vp.angleMin)/vp.angleStep , (vp.vertAngleMax-elevationAngle)/vp.angleStep )
         testX::UInt64 = round((toRadians(azimuth)-vp.angleMin)/vp.angleStep)
         testY::UInt64 = round((vp.vertAngleMax-elevationAngle)/vp.angleStep)
         visible::Bool = testPixel(distMap, testX, testY, 4, UInt16(trunc(distance/vp.distStep)), UInt16(5))
@@ -403,8 +411,11 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
         end
     end
     println("Drawing ...")
+    bgSurf = Cairo.read_from_png("outlines.png")
     surf = Cairo.CairoARGBSurface(vp.outWidth, vp.outHeight)
     ctx  = Cairo.CairoContext(surf)
+    Cairo.set_source_surface(ctx, bgSurf, 0.0, 0.0)
+    Cairo.paint(ctx)
     Cairo.select_font_face(ctx, "Fira Sans", Cairo.FONT_SLANT_NORMAL, Cairo.FONT_WEIGHT_NORMAL)
     Cairo.set_font_size(ctx, 18.0)
     Cairo.set_line_width(ctx, 1.0)
@@ -444,7 +455,7 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
     Cairo.move_to(ctx, 0.0,         round(vp.vertAngleMax/vp.angleStep)+0.5)
     Cairo.line_to(ctx, vp.outWidth, round(vp.vertAngleMax/vp.angleStep)+0.5)
     Cairo.stroke(ctx)
-    Cairo.write_to_png(surf, "annotation-layer.png" )
+    Cairo.write_to_png(surf, "outline-with-annotations.png" )
 end
 
 # Info (from https://www.udeuschle.de/panoramas/makepanoramas_en.htm)
@@ -463,7 +474,7 @@ function main()
     #saveHeightMap(data)
     #ellipsoid = SphericalEarth()
     ellipsoid = Wgs84()
-    vp = ViewPort(ellipsoid, eye, toRadians( 90.0), toRadians(135.0), -0.0560, 0.0339, 0.0001, 250.0e3, 1.18)
+    vp = ViewPort(ellipsoid, eye, toRadians(160.0), toRadians(-160.0), -0.0560, 0.0339, 0.0001, 250.0e3, 1.18)
     distMap   = makeDistMap(vp, latLonRange, heightMap)
 
     minValue = minimum(distMap)
