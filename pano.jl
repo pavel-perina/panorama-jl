@@ -2,6 +2,7 @@ using Printf, LinearAlgebra
 import FixedPointNumbers: N0f8
 import Images
 import CSV, DataFrames
+import Luxor
 
 toRadians(α::Float64) = α / 180.0 * π
 toDegrees(α::Float64) = α * 180.0 / π
@@ -138,7 +139,7 @@ end
 getHgtFileName(lat, lon) = @sprintf "N%02dE%03d.hgt" lat lon
 
 
-getHgtFilePath(lat, lon, tileDir) = @sprintf "%s\\%s" tileDir getHgtFileName(lat, lon)
+getHgtFilePath(lat, lon, tileDir) = @sprintf "%s/%s" tileDir getHgtFileName(lat, lon)
 
 
 function loadData(range::LatLonRange, tileDir)
@@ -354,6 +355,9 @@ end
 
 
 function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
+    println("Loading data")
+    dfFiltered = DataFrames.DataFrame(Summit = String[], Elevation = Float64[], Distance=Float64[], X=UInt64[], Y=UInt64[])
+
     # TODO: options
     hills = CSV.File("data-cz-prom100.tsv") |> DataFrames.DataFrame
     # convert to ours azimuth, angle above horizon and distance - project into 
@@ -362,8 +366,7 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
     elevationDropAtDistance(distance::Float64, radius::Float64)::Float64 = sqrt(radius*radius-distance*distance)-radius
     function elevationDropCompensation(distance::Float64, radius::Float64, refractionCoef::Float64)::Float64 
         return elevationDropAtDistance(distance, radius*refractionCoef) - elevationDropAtDistance(distance, radius)
-    end
-        
+    end 
     mLocalToWorld = hcat(vp.vEast,vp.vNorth,vp.vUp)
     mWorldToLocal = inv(mLocalToWorld)
     #ground = PositionLLH(vp.eye.lat, vp.eye.lon, 0.0)
@@ -389,13 +392,44 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
         end
         @printf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Summit"], azimuth, distance/1000.0)
         elevationAngle=atan(hill_local_xyz[3], distance)
-#        @sprintf("              hill=%f+%f, dist=%f\n", hill_local_xyz[3], elevationDropCompensation(distance, earthRadius, vp.refractionCoef), distance)
-#        @sprintf("              , pixel.x,y=%5.0f,%5.0f\n", (toRadians(azimuth)-vp.angleMin)/vp.angleStep , (vp.vertAngleMax-elevationAngle)/vp.angleStep )
+#        @printf("              hill=%f+%f, dist=%f\n", hill_local_xyz[3], elevationDropCompensation(distance, earthRadius, vp.refractionCoef), distance)
+        @printf("              , pixel.x,y=%5.0f,%5.0f\n", (toRadians(azimuth)-vp.angleMin)/vp.angleStep , (vp.vertAngleMax-elevationAngle)/vp.angleStep )
         testX::UInt64 = round((toRadians(azimuth)-vp.angleMin)/vp.angleStep)
         testY::UInt64 = round((vp.vertAngleMax-elevationAngle)/vp.angleStep)
         visible::Bool = testPixel(distMap, testX, testY, 4, UInt16(trunc(distance/vp.distStep)), UInt16(5))
         @printf(", visible=%s\n", visible)
+        if visible
+            push!(dfFiltered, (hill["Summit"], hill["Elevation"], distance, testX, testY))
+        end
     end
+    println("Drawing ...")
+    Luxor.Drawing(vp.outWidth, vp.outHeight, "annotation-layer.png")
+    Luxor.fontsize(12)
+    Luxor.fontface("Noto Sans") # No luck changing font on Windows or Linux :-(
+    Luxor.setline(1.0)
+    for poi in eachrow(dfFiltered)
+        ptBot = Luxor.Point(poi["X"]+0.5, poi["Y"])
+        ptTop = Luxor.Point(poi["X"]+0.5, 300)
+        Luxor.sethue(131/255, 148/255, 150/255)
+        Luxor.line(ptBot, ptTop, :stroke)
+        Luxor.sethue(38/255, 139/255, 210/255)
+        #Luxor.text(poi["Summit"], Luxor.Point(ptTop.x + 5, ptTop.y - 5))
+        Luxor.settext(@sprintf("<span font=\"Fira Sans, Lato Sans, Sans 14\">%s</span>", poi["Summit"]), 
+            Luxor.Point(ptTop.x + 5, ptTop.y - 5); angle=45, markup=true)
+    end
+    azMinD::Int = Int(ceil(toDegrees(vp.angleMin)))
+    azMaxD::Int = Int(floor(toDegrees(vp.angleMax)))    
+    for az in azMinD:azMaxD
+        x = round((toRadians(Float64(az))-vp.angleMin)/vp.angleStep)+0.5
+        Luxor.sethue(131/255, 148/255, 150/255)
+        Luxor.line(Luxor.Point(x,38), Luxor.Point(x,42), :stroke)
+        Luxor.line(Luxor.Point(x,63), Luxor.Point(x,68), :stroke)
+        Luxor.sethue(38/255, 139/255, 210/255)
+        Luxor.text(@sprintf("%d °", az), Luxor.Point(x, 58); halign=:center)
+        @printf("%d ° at %f", az,x)
+
+    end
+    Luxor.finish()
 end
 
 # Info (from https://www.udeuschle.de/panoramas/makepanoramas_en.htm)
@@ -405,14 +439,15 @@ end
 
 # TODO: determine lat/long range automatically
 function main()
-    tileDir     = "d:\\_disk_d_old\\devel-python\\panorama\\data_srtm"
+    tileDir     = "d:/_disk_d_old/devel-python/panorama/data_srtm"
+	#tileDir     = "data_srtm"
     latLonRange = LatLonRange(47, 15, 50, 21)
     eye         = PositionLLH(50.08309, 17.23094, 1510)
 
     heightMap = loadData(latLonRange, tileDir)
     #saveHeightMap(data)
-    ellipsoid = SphericalEarth()
-    #ellipsoid = Wgs84()
+    #ellipsoid = SphericalEarth()
+    ellipsoid = Wgs84()
     vp = ViewPort(ellipsoid, eye, toRadians( 90.0), toRadians(135.0), -0.0560, 0.0339, 0.0001, 250.0e3, 1.18)
     distMap   = makeDistMap(vp, latLonRange, heightMap)
 
@@ -427,11 +462,9 @@ function main()
     println("Saving outlines.png")
     Images.save("outlines.png", outlines)
 
-    println("Creating descriptions")
+    println("Creating annotations")
     drawSummits(vp, distMap)
     println("All done")
-
-
 
     # This can be fun: https://wiki.flightgear.org/Atmospheric_light_scattering
     # http://www.science-and-fiction.org/rendering/als.html
