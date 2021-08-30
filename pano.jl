@@ -2,7 +2,7 @@ using Printf, LinearAlgebra
 import FixedPointNumbers: N0f8
 import Images
 import CSV, DataFrames
-import Luxor
+import Cairo
 
 toRadians(α::Float64) = α / 180.0 * π
 toDegrees(α::Float64) = α * 180.0 / π
@@ -403,33 +403,41 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
         end
     end
     println("Drawing ...")
-    Luxor.Drawing(vp.outWidth, vp.outHeight, "annotation-layer.png")
-    Luxor.fontsize(12)
-    Luxor.fontface("Noto Sans") # No luck changing font on Windows or Linux :-(
-    Luxor.setline(1.0)
+    surf = Cairo.CairoARGBSurface(vp.outWidth, vp.outHeight)
+    ctx  = Cairo.CairoContext(surf)
+    Cairo.select_font_face(ctx, "Fira Sans", Cairo.FONT_SLANT_NORMAL, Cairo.FONT_WEIGHT_NORMAL)
+    Cairo.set_font_size(ctx, 18.0)
+    Cairo.set_line_width(ctx, 1.0)
     for poi in eachrow(dfFiltered)
-        ptBot = Luxor.Point(poi["X"]+0.5, poi["Y"])
-        ptTop = Luxor.Point(poi["X"]+0.5, 300)
-        Luxor.sethue(131/255, 148/255, 150/255)
-        Luxor.line(ptBot, ptTop, :stroke)
-        Luxor.sethue(38/255, 139/255, 210/255)
-        #Luxor.text(poi["Summit"], Luxor.Point(ptTop.x + 5, ptTop.y - 5))
-        Luxor.settext(@sprintf("<span font=\"Fira Sans, Lato Sans, Sans 14\">%s</span>", poi["Summit"]), 
-            Luxor.Point(ptTop.x + 5, ptTop.y - 5); angle=45, markup=true)
+        Cairo.set_source_rgb(ctx, 131/255, 148/255, 150/255)
+        Cairo.move_to(ctx, poi["X"]+0.5, poi["Y"])
+        Cairo.line_to(ctx, poi["X"]+0.5, 300.0)
+        Cairo.stroke(ctx)
+        Cairo.set_source_rgb(ctx, 38/255, 139/255, 210/255)
+        Cairo.move_to(ctx, poi["X"]+5, 300.0-5.0)
+        Cairo.save(ctx)
+        Cairo.rotate(ctx, toRadians(-45.0))
+        Cairo.show_text(ctx, poi["Summit"])
+        Cairo.show_text(ctx, @sprintf(" (%3.0f km)", poi["Distance"]/1000.0))
+        Cairo.restore(ctx)
     end
+
     azMinD::Int = Int(ceil(toDegrees(vp.angleMin)))
-    azMaxD::Int = Int(floor(toDegrees(vp.angleMax)))    
+    azMaxD::Int = Int(floor(toDegrees(vp.angleMax)))
     for az in azMinD:azMaxD
         x = round((toRadians(Float64(az))-vp.angleMin)/vp.angleStep)+0.5
-        Luxor.sethue(131/255, 148/255, 150/255)
-        Luxor.line(Luxor.Point(x,38), Luxor.Point(x,42), :stroke)
-        Luxor.line(Luxor.Point(x,63), Luxor.Point(x,68), :stroke)
-        Luxor.sethue(38/255, 139/255, 210/255)
-        Luxor.text(@sprintf("%d °", az), Luxor.Point(x, 58); halign=:center)
-        @printf("%d ° at %f", az,x)
-
+        Cairo.set_source_rgb(ctx,131/255, 148/255, 150/255)
+        Cairo.move_to(ctx, x, 38)
+        Cairo.line_to(ctx, x, 42)
+        Cairo.stroke(ctx)
+        Cairo.move_to(ctx, x, 63)
+        Cairo.line_to(ctx, x, 68)
+        Cairo.stroke(ctx)
+        Cairo.set_source_rgb(ctx, 38/255, 139/255, 210/255)
+        Cairo.move_to(ctx, x, 58)
+        Cairo.show_text(ctx, @sprintf("%d °", az))
     end
-    Luxor.finish()
+    Cairo.write_to_png(surf, "annotation-layer.png" )
 end
 
 # Info (from https://www.udeuschle.de/panoramas/makepanoramas_en.htm)

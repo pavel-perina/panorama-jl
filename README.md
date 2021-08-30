@@ -17,9 +17,12 @@ Honestly, for every other Python script I wrote speed does not matter.
 ## TODOs
 
 * [x] Automatic anotations (summits from database, azimuths, horizon line)
-* [ ] TEST: Make it work over any azimuth range (e.g. 350° to 10°, 170° to -170°)
+* [x] Change annotation rendering from Luxor to Cairo (it's more useful to learn)
+* [ ] Render annoations to the same image
 * [ ] Summit database for Slovakia and Alps, some manual entries for local hills
+* [ ] TEST: Make it work over any azimuth range (e.g. 350° to 10°, 170° to -170°)
 * [ ] WIP: Optimizations (wgs84->sphere), remove atan
+* [ ] Explore where WGS84 vs Sphere matters (cause annotation are few pixels off)
 * [ ] WIP: Object oriented code (how classes work in Julia?)
 * [ ] Coloring (and shading?), legend (color->distance)
 * [ ] Input data interpolation
@@ -56,3 +59,9 @@ Saving horizon.png
 ## Images and comparison
 
 ![](pano-20210828.png)
+
+## Data sources
+
+Heightmaps:
+
+POIs:
