@@ -434,9 +434,16 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
         Cairo.line_to(ctx, x, 68)
         Cairo.stroke(ctx)
         Cairo.set_source_rgb(ctx, 38/255, 139/255, 210/255)
-        Cairo.move_to(ctx, x, 58)
+        # TODO: center text (number)
+        ext = Cairo.text_extents(ctx, @sprintf("%d", az))
+        Cairo.move_to(ctx, x - ext[3]/2, 58)
         Cairo.show_text(ctx, @sprintf("%d °", az))
     end
+
+    Cairo.set_source_rgb(ctx, 238/255, 232/255, 213/255)
+    Cairo.move_to(ctx, 0.0,         round(vp.vertAngleMax/vp.angleStep)+0.5)
+    Cairo.line_to(ctx, vp.outWidth, round(vp.vertAngleMax/vp.angleStep)+0.5)
+    Cairo.stroke(ctx)
     Cairo.write_to_png(surf, "annotation-layer.png" )
 end
 
