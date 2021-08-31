@@ -103,13 +103,27 @@ end
 function xyz_to_llh(ellipsoid::SphericalEarth, xyz::PositionXYZ)::PositionLLH
     v      = sqrt(xyz.x*xyz.x + xyz.y*xyz.y + xyz.z*xyz.z) 
     height = v - ellipsoid.r
-    lon    = atan(xyz.y, xyz.x)    
+    lon    = atan(xyz.y, xyz.x)
     lat    = asin(xyz.z/v)
     return PositionLLH(toDegrees(lat), toDegrees(lon), height)
 end
 
 
+# https://www.movable-type.co.uk/scripts/latlong.html
+# for SphericalEarth, but best source found
+function bearing(p1::PositionLLH, p2::PositionLLH)::Float64
+    φ1 = toRadians(p1.lat)
+    φ2 = toRadians(p2.lat)
+    Δλ = toRadians(p2.lon-p1.lon)
+    y  = sin(Δλ)*cos(φ2)
+    x  = cos(φ1)*sin(φ2) - sin(φ1)*cos(φ2)*cos(Δλ)
+    θ  = atan(y, x)
+    return mod(toDegrees(θ) + 360.0, 360.0)
+end
+
+
 xyz_to_vector(xyz::PositionXYZ)::Vector{Float64} = [xyz.x; xyz.y; xyz.z]
+
 
 
 # GeoUtils test
@@ -234,7 +248,7 @@ struct ViewPort
     outHeight::Int
 
     function ViewPort(ellipsoid::Ellipsoid, eye::PositionLLH, azimuthMinR, azimuthMaxR, elevationMinR, elevationMaxR, angularStepR, distMaxM, refractionCoef)
-        distStep = 100.0
+        distStep = 50.0
         pRef   = xyz_to_vector(llh_to_xyz(ellipsoid, eye))
         vZ     = [0.0; 0.0; 1.0]
         vUp    = normalize(pRef)
@@ -379,15 +393,11 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
             continue
         end
         hill_local_xyz[3] = hill["Elevation"] + elevationDropAtDistance(distance, earthRadius * vp.refractionCoef) - vp.eye.height
-        azimuth  = toDegrees(atan(hill_local_xyz[1], hill_local_xyz[2])) # goes from north to east so y/x is swapped
-        #print(hill["Summit"])
-        if azimuth < 0
-            azimuth = azimuth + 360
-        end
-        if (azimuth < toDegrees(vp.angleMin) || azimuth > toDegrees(vp.angleMax))
+        azimuth = bearing(vp.eye, PositionLLH(hill["Latitude"], hill["Longitude"], 0.0))
+        if (azimuth < toDegrees(vp.angleMin) || azimuth > toDegrees(vp.angleMax)) # FIXME: test for weird angles
             continue
         end
-        @printf("%20s is possibly visible at azimuth %5.1f, distance %5.1f km", hill["Summit"], azimuth, distance/1000.0)
+        @printf("%20s is possibly visible at azimuth %6.2f, distance %6.2f km", hill["Summit"], azimuth, distance/1000.0)
         elevationAngle=atan(hill_local_xyz[3], distance)
 #        @printf("              hill=%f+%f, dist=%f\n", hill_local_xyz[3], elevationDropCompensation(distance, earthRadius, vp.refractionCoef), distance)
 #        @printf("              , pixel.x,y=%5.0f,%5.0f\n", (toRadians(azimuth)-vp.angleMin)/vp.angleStep , (vp.vertAngleMax-elevationAngle)/vp.angleStep )
@@ -403,11 +413,11 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
     # Initialize
     Cairo_set_line_color(ctx::Cairo.CairoContext) = Cairo.set_source_rgb(ctx, 131/255, 148/255, 150/255)
     Cairo_set_text_color(ctx::Cairo.CairoContext) = Cairo.set_source_rgb(ctx,  38/255, 139/255, 210/255)
-    function Cairo_line(ctx::Cairo.CairoContext, x1::Core.Real, y1::Core.Real, x2::Core.Real, y2::Core.Real)::nothing
+    function Cairo_line(ctx::Cairo.CairoContext, x1::Core.Real, y1::Core.Real, x2::Core.Real, y2::Core.Real)
         Cairo.move_to(ctx, x1, y1)
         Cairo.line_to(ctx, x2, y2)
         Cairo.stroke(ctx)
-    end    
+    end
     surf = Cairo.CairoARGBSurface(vp.outWidth, vp.outHeight)
     ctx  = Cairo.CairoContext(surf)
     # Background (previous image)
@@ -464,8 +474,8 @@ function main()
 
     heightMap = loadData(latLonRange, tileDir)
     #saveHeightMap(data)
-    #ellipsoid = SphericalEarth()
-    ellipsoid = Wgs84()
+    ellipsoid = SphericalEarth()
+    #ellipsoid = Wgs84()
     vp = ViewPort(ellipsoid, eye, toRadians(90.0), toRadians(135.0), -0.0560, 0.0339, 0.0001, 250.0e3, 1.18)
     distMap   = makeDistMap(vp, latLonRange, heightMap)
 
@@ -489,3 +499,4 @@ function main()
 end
 
 main()
+
