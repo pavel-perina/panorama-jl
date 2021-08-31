@@ -136,13 +136,10 @@ struct LatLonRange
 end
 
 
-getHgtFileName(lat, lon) = @sprintf "N%02dE%03d.hgt" lat lon
-
-
-getHgtFilePath(lat, lon, tileDir) = @sprintf "%s/%s" tileDir getHgtFileName(lat, lon)
-
-
 function loadData(range::LatLonRange, tileDir)
+    getHgtFileName(lat, lon) = @sprintf "N%02dE%03d.hgt" lat lon
+    getHgtFilePath(lat, lon, tileDir) = @sprintf "%s/%s" tileDir getHgtFileName(lat, lon)
+
     nTilesHoriz = range.maxLon - range.minLon + 1
     nTilesVert  = range.maxLat - range.minLat + 1
     nTilesTotal = nTilesHoriz * nTilesVert
@@ -195,7 +192,6 @@ end
 
 
 function saveHeightMap(data)
-#  minValue = minimum(data)
    maxValue = maximum(data)
    norm = Images.Gray.(data/maxValue)
    println("Saving heightmap-gray.png")
@@ -285,7 +281,6 @@ function makeDistMap(vp::ViewPort, latLonRange::LatLonRange, heightMap::Matrix{U
     output      = zeros(UInt16, vp.outHeight, vp.outWidth)
     distances   = range(0.0, vp.distMax, step=vp.distStep)
     Threads.@threads for x in 0:(vp.outWidth-1)
-        #@printf("Rendering line %d of %d", x, xMax)
         azimuth = vp.angleMin + x*vp.angleStep
         cosAz   = cos(azimuth)
         sinAz   = sin(azimuth)
@@ -336,12 +331,6 @@ function extractOutlines(distMap::Matrix{UInt16})
     return output
 end
 
-function drawHorizon()
-end
-
-function drawAzimuths()
-end
-
 
 function testPixel(distMap::Matrix{UInt16}, x::UInt64, y::UInt64, radius::Int64, value::UInt16, valueTolerance::UInt16)::Bool
     if (x < radius+1) || (y < radius+1) || (x+radius> size(distMap)[2]) || (y+radius> size(distMap)[1])
@@ -374,9 +363,7 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
     hill_to_xyz(ellipsoid::Ellipsoid, dfRow)::PositionXYZ = llh_to_xyz(ellipsoid, PositionLLH(dfRow["Latitude"], dfRow["Longitude"], dfRow["Elevation"])) 
     # difference between true and seen earth curvature
     elevationDropAtDistance(distance::Float64, radius::Float64)::Float64 = sqrt(radius*radius-distance*distance)-radius
-    function elevationDropCompensation(distance::Float64, radius::Float64, refractionCoef::Float64)::Float64 
-        return elevationDropAtDistance(distance, radius*refractionCoef) - elevationDropAtDistance(distance, radius)
-    end 
+    elevationDropCompensation(distance::Float64, radius::Float64, refractionCoef::Float64)::Float64 = elevationDropAtDistance(distance, radius*refractionCoef) - elevationDropAtDistance(distance, radius)
     mLocalToWorld = hcat(vp.vEast,vp.vNorth,vp.vUp)
     mWorldToLocal = inv(mLocalToWorld)
     #ground = PositionLLH(vp.eye.lat, vp.eye.lon, 0.0)
@@ -413,20 +400,28 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
         end
     end
     println("Drawing ...")
-    bgSurf = Cairo.read_from_png("outlines.png")
+    # Initialize
+    Cairo_set_line_color(ctx::Cairo.CairoContext) = Cairo.set_source_rgb(ctx, 131/255, 148/255, 150/255)
+    Cairo_set_text_color(ctx::Cairo.CairoContext) = Cairo.set_source_rgb(ctx,  38/255, 139/255, 210/255)
+    function Cairo_line(ctx::Cairo.CairoContext, x1::Core.Real, y1::Core.Real, x2::Core.Real, y2::Core.Real)::nothing
+        Cairo.move_to(ctx, x1, y1)
+        Cairo.line_to(ctx, x2, y2)
+        Cairo.stroke(ctx)
+    end    
     surf = Cairo.CairoARGBSurface(vp.outWidth, vp.outHeight)
     ctx  = Cairo.CairoContext(surf)
+    # Background (previous image)
+    bgSurf = Cairo.read_from_png("outlines.png")
     Cairo.set_source_surface(ctx, bgSurf, 0.0, 0.0)
     Cairo.paint(ctx)
+    # Annotations
     Cairo.select_font_face(ctx, "Fira Sans", Cairo.FONT_SLANT_NORMAL, Cairo.FONT_WEIGHT_NORMAL)
     Cairo.set_font_size(ctx, 18.0)
     Cairo.set_line_width(ctx, 1.0)
     for poi in eachrow(dfFiltered)
-        Cairo.set_source_rgb(ctx, 131/255, 148/255, 150/255)
-        Cairo.move_to(ctx, poi["X"]+0.5, poi["Y"])
-        Cairo.line_to(ctx, poi["X"]+0.5, 300.0)
-        Cairo.stroke(ctx)
-        Cairo.set_source_rgb(ctx, 38/255, 139/255, 210/255)
+        Cairo_set_line_color(ctx)
+        Cairo_line(ctx, poi["X"]+0.5, poi["Y"], poi["X"]+0.5, 300.0)
+        Cairo_set_text_color(ctx)
         Cairo.move_to(ctx, poi["X"]+5, 300.0-5.0)
         Cairo.save(ctx)
         Cairo.rotate(ctx, toRadians(-45.0))
@@ -434,29 +429,24 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
         Cairo.show_text(ctx, @sprintf(" (%3.0f km)", poi["Distance"]/1000.0))
         Cairo.restore(ctx)
     end
-
+    # Azimuth ticks
     azMinD::Int = Int(ceil(toDegrees(vp.angleMin)))
     azMaxD::Int = Int(floor(toDegrees(vp.angleMax)))
     for az in azMinD:azMaxD
         x = round((toRadians(Float64(az))-vp.angleMin)/vp.angleStep)+0.5
-        Cairo.set_source_rgb(ctx,131/255, 148/255, 150/255)
-        Cairo.move_to(ctx, x, 38)
-        Cairo.line_to(ctx, x, 42)
-        Cairo.stroke(ctx)
-        Cairo.move_to(ctx, x, 63)
-        Cairo.line_to(ctx, x, 68)
-        Cairo.stroke(ctx)
-        Cairo.set_source_rgb(ctx, 38/255, 139/255, 210/255)
-        # TODO: center text (number)
+        Cairo_set_line_color(ctx)
+        Cairo_line(ctx, x, 38, x, 42)
+        Cairo_line(ctx, x, 63, x, 68)
+        Cairo_set_text_color(ctx)
         ext = Cairo.text_extents(ctx, @sprintf("%d", az))
         Cairo.move_to(ctx, x - ext[3]/2, 58)
         Cairo.show_text(ctx, @sprintf("%d °", az))
     end
-
+    # Horizon line
+    horizY = round(vp.vertAngleMax/vp.angleStep)+0.5
     Cairo.set_source_rgb(ctx, 238/255, 232/255, 213/255)
-    Cairo.move_to(ctx, 0.0,         round(vp.vertAngleMax/vp.angleStep)+0.5)
-    Cairo.line_to(ctx, vp.outWidth, round(vp.vertAngleMax/vp.angleStep)+0.5)
-    Cairo.stroke(ctx)
+    Cairo_line(ctx, 0.0, horizY, vp.outWidth, horizY)
+    # Finalize
     Cairo.write_to_png(surf, "outline-with-annotations.png" )
 end
 
@@ -496,7 +486,6 @@ function main()
 
     # This can be fun: https://wiki.flightgear.org/Atmospheric_light_scattering
     # http://www.science-and-fiction.org/rendering/als.html
-
 end
 
 main()
