@@ -367,7 +367,9 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
     dfFiltered = DataFrames.DataFrame(Summit = String[], Elevation = Float64[], Distance=Float64[], X=UInt64[], Y=UInt64[])
 
     # TODO: options
-    hills = CSV.File("data-cz-prom100.tsv") |> DataFrames.DataFrame
+    hillsCZ = CSV.File("data-cz-prom100.tsv") |> DataFrames.DataFrame
+    hillsSK = CSV.File("data-sk-prom200.tsv") |> DataFrames.DataFrame
+    hills = vcat(hillsCZ, hillsSK)
     # convert to ours azimuth, angle above horizon and distance - project into 
     hill_to_xyz(ellipsoid::Ellipsoid, dfRow)::PositionXYZ = llh_to_xyz(ellipsoid, PositionLLH(dfRow["Latitude"], dfRow["Longitude"], dfRow["Elevation"])) 
     # difference between true and seen earth curvature
@@ -474,7 +476,7 @@ function main()
     #saveHeightMap(data)
     #ellipsoid = SphericalEarth()
     ellipsoid = Wgs84()
-    vp = ViewPort(ellipsoid, eye, toRadians(160.0), toRadians(-160.0), -0.0560, 0.0339, 0.0001, 250.0e3, 1.18)
+    vp = ViewPort(ellipsoid, eye, toRadians(90.0), toRadians(135.0), -0.0560, 0.0339, 0.0001, 250.0e3, 1.18)
     distMap   = makeDistMap(vp, latLonRange, heightMap)
 
     minValue = minimum(distMap)

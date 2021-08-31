@@ -19,7 +19,7 @@ Honestly, for every other Python script I wrote speed does not matter.
 * [x] Automatic anotations (summits from database, azimuths, horizon line)
 * [x] Change annotation rendering from Luxor to Cairo (it's more useful to learn)
 * [x] Render annoations to the same image
-* [ ] Summit database for Slovakia and Alps, some manual entries for local hills
+* [ ] WIP: Summit database for Slovakia and Alps, some manual entries for local hills
 * [x] Make it work over any azimuth range (e.g. 350° to 10°, 170° to -170°)
 * [ ] WIP: Optimizations (wgs84->sphere), remove atan
 * [ ] Explore where WGS84 vs Sphere matters (cause annotation are few pixels off)
