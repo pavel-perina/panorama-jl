@@ -2,6 +2,8 @@
 
 First ever Julia code attempt :-)
 
+Panorama generator / voxel rendering engine that shows panorama as seen from certain location and annotates hills visible in the distance.
+
 As of 2021-08-28 it's for personal use as it contains many hard-coded variables (heightmap path, view set to Praděd,CZ)
 
 ## Historical background
