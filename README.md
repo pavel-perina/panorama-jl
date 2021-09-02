@@ -23,6 +23,7 @@ Honestly, for every other Python script I wrote speed does not matter.
 * [x] Render annoations to the same image
 * [ ] WIP: Summit database for Slovakia and Alps, some manual entries for local hills
 * [x] Make it work over any azimuth range (e.g. 350° to 10°, 170° to -170°)
+* [ ] See above and check/fix code that discards points of interest
 * [ ] WIP: Optimizations (wgs84->sphere), remove atan
 * [ ] Explore where WGS84 vs Sphere matters (cause annotation are few pixels off)
 * [ ] WIP: Object oriented code (how classes work in Julia?)
@@ -30,6 +31,22 @@ Honestly, for every other Python script I wrote speed does not matter.
 * [ ] Input data interpolation
 * [ ] Test for western/southern hemisphere? I don't need it.
 * [ ] Sky, haze, clouds, athmospheric light scattering, stars, sun, texturing (just kidding)
+
+## Interesting problems
+
+* Earth is not flat - if you draw line from point A to B, it has different azimuth in both points. Imagine plane that starts in USA, goes north east and arrives to Europe going south east. This makes annotating distant hills somewhat difficult.
+* Earth is not perfect sphere - hopefully this does not seem to matter as much.
+* Athmospehere gets less dense with altitude due to decreasing pressure. As it gets colder, density slightly increases (for given pressure), which slightly compensates this effect. Refractive index changes a bit a ray of light that travels up at low angle is bend back towards the ground. By trial-error and comparing rendered image with photo, surrounded terrain is mapped onto sphere that is 18% bigger than Earth. Reference photo was taken at temperature inversion. It's not typical, but it helps to keep humid air, dust and smog close to the ground and it makes extreme visibility posible.
+* Surprisingly not all data I've found are accurate. Czech hills with prominence over 100m, Slovak hills over 200m have sometimes position erros up to low hundreds of meters. Original SRTM data have some voids as optical measurement failed on snow covered places.
+
+## Interesting links
+
+* Below the horizon—the physics of extreme visual ranges (Michael Vollmer): https://www.osapublishing.org/ao/abstract.cfm?uri=ao-59-21-f11
+* Online tool with very same idea https://www.udeuschle.de/panoramas/makepanoramas_en.htm
+* Application with very same idea https://www.peakfinder.org
+* Useful calculations on sphere https://www.movable-type.co.uk/scripts/latlong.html
+* Useful calculations on spheroid https://www.movable-type.co.uk/scripts/latlong-vincenty.html
+* Terrain rendering algorithm in less than 20 lines of code https://github.com/s-macke/VoxelSpace (when I wrote Python version 10 years ago I had that game and Mars demo/Time Clarke/1994 in mind)
 
 ## Sample output
 

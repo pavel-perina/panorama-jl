@@ -353,10 +353,10 @@ function testPixel(distMap::Matrix{UInt16}, x::UInt64, y::UInt64, radius::Int64,
     for row in (y-radius):(y+radius)
         for col in (x-radius):(x+radius)
             mapValue = distMap[row, col]
-            if (mapValue > value) && ((mapValue - value) <= valueTolerance)
+            if (mapValue > value) && ((mapValue - value) ≤ valueTolerance)
                 return true
             end
-            if (mapValue < value) && ((value - mapValue) <= valueTolerance)
+            if (mapValue < value) && ((value - mapValue) ≤ valueTolerance)
                 return true
             end
         end
@@ -370,14 +370,16 @@ function drawSummits(vp::ViewPort, distMap::Matrix{UInt16})
     dfFiltered = DataFrames.DataFrame(Summit = String[], Elevation = Float64[], Distance=Float64[], X=UInt64[], Y=UInt64[])
 
     # TODO: options
-    hillsCZ = CSV.File("data-cz-prom100.tsv") |> DataFrames.DataFrame
-    hillsSK = CSV.File("data-sk-prom200.tsv") |> DataFrames.DataFrame
-    hills = vcat(hillsCZ, hillsSK)
+    #hillsCZ = CSV.File("data-cz-prom100.tsv") |> DataFrames.DataFrame
+    #hillsSK = CSV.File("data-sk-prom200.tsv") |> DataFrames.DataFrame
+    #hills = vcat(hillsCZ, hillsSK)
+    hills =  CSV.File("osm-cz-sk.tsv") |> DataFrames.DataFrame
     # convert to ours azimuth, angle above horizon and distance - project into 
     hill_to_xyz(ellipsoid::Ellipsoid, dfRow)::PositionXYZ = llh_to_xyz(ellipsoid, PositionLLH(dfRow["Latitude"], dfRow["Longitude"], dfRow["Elevation"])) 
     # difference between true and seen earth curvature
     elevationDropAtDistance(distance::Float64, radius::Float64)::Float64 = sqrt(radius*radius-distance*distance)-radius
     elevationDropCompensation(distance::Float64, radius::Float64, refractionCoef::Float64)::Float64 = elevationDropAtDistance(distance, radius*refractionCoef) - elevationDropAtDistance(distance, radius)
+    # TODO: make distance function
     mLocalToWorld = hcat(vp.vEast,vp.vNorth,vp.vUp)
     mWorldToLocal = inv(mLocalToWorld)
     #ground = PositionLLH(vp.eye.lat, vp.eye.lon, 0.0)
