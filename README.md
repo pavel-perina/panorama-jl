@@ -1,20 +1,21 @@
 # What's this
 
-First ever Julia code attempt :-)
+First-ever Julia code attempt :-)
 
-Panorama generator / voxel rendering engine that shows panorama as seen from certain location and annotates hills visible in the distance.
+Panorama generator and voxel rendering engine showing panorama as seen from a given location and annotates hills visible in the distance.
 
-As of 2021-08-28 it's for personal use as it contains many hard-coded variables (heightmap path, view set to Praděd,CZ)
+As of 2021-08-28, it's for personal use as it contains many hard-coded variables (heightmap path, view set to Praděd, CZ).
+
 
 ## Historical background
 
-Original code for panorama rendering was written in Python and unfinished/unpolished.
+I wrote the original code for panorama rendering in Python. It was not finished nor polished.
 I've found https://www.udeuschle.de/panoramas/makepanoramas_en.htm that was by far superior.
-Program in Python run in order of tens of minutes (2.6GHz Core2Duo) and manual measuring of angle (encoded in x position) and distance (encoded in color) to find far away hills on the map was not convenient. It was enough to confirm that High Tatras are visible from Praděd and if Schneeberg is visible from few places around Brno. Nothing else.
+Program in Python run in order of tens of minutes (2.6GHz Core2Duo) and manual measuring of angle (encoded in x position) and distance (encoded in color) to find faraway hills on the map was not convenient. It was enough to confirm, that the High Tatras are visible from Praděd and if Schneeberg is visible from few places around Brno. Nothing else.
 
-But because I found Julia language accidentally (by finding JuliaMono font) and it stated that it's way faster than Python, I tried it and after three evenings extended it beyond original functionality. Hopefully program runs in order of seconds on historic i5-4590@3.3GHz using three cores.
+I found Julia language accidentally (by finding JuliaMono font) and it stated that it's way faster than Python. I tried it and, after three evenings, extended it beyond original functionality. Hopefully, the program runs in order of seconds on historic i5-4590@3.3GHz using three cores.
 
-Honestly, for every other Python script I wrote speed does not matter.
+Honestly, for every other Python script I wrote, speed does not matter.
 
 ## TODOs
 
@@ -34,10 +35,10 @@ Honestly, for every other Python script I wrote speed does not matter.
 
 ## Interesting problems
 
-* Earth is not flat - if you draw line from point A to B, it has different azimuth in both points. Imagine plane that starts in USA, goes north east and arrives to Europe going south east. This makes annotating distant hills somewhat difficult.
-* Earth is not perfect sphere - hopefully this does not seem to matter as much.
-* Athmospehere gets less dense with altitude due to decreasing pressure. As it gets colder, density slightly increases (for given pressure), which slightly compensates this effect. Refractive index changes a bit and ray of light that travels up at low angle is bend back towards the ground. By trial-error and comparing rendered image with photo, surrounding terrain is mapped onto sphere that is 18% bigger than Earth. Reference photo was taken at temperature inversion. It's not typical, but it helps to keep humid air, dust and smog close to the ground and it makes extreme visibility posible.
-* Surprisingly not all data I've found are accurate. Czech hills with prominence over 100m, Slovak hills over 200m have sometimes position erros up to low hundreds of meters. Original SRTM data have some voids as optical measurement failed on snow covered places and this is another source of misplaced annotations (hopefully fixed SRTM data can be found and there are other data sources)
+* Earth is not flat - if you draw a line from point A to B, it has a different azimuth in both points. Imagine a plane that starts in the USA, goes northeast and arrives in Europe going southeast. This makes annotating distant hills somewhat difficult.
+* Earth is not a perfect sphere - hopefully this does not seem to matter as much.
+* Atmosphere gets less dense with altitude due to decreasing pressure. As it gets colder, density slightly increases (for a given pressure), which slightly compensates this effect. The refractive index changes a bit and the ray of light that travels up at a low angle bends back towards the ground. By trial-error and comparing the rendered image with the reference photo, the surrounding terrain is mapped onto a sphere that is 18% bigger than Earth. The reference photo was taken at temperature inversion. It's not typical, but it helps to keep humid air, dust and smog close to the ground and it makes extreme visibility possible.
+* Surprisingly not all data I've found is accurate. Czech hills with prominence over 100m, Slovak hills over 200m have sometimes position error up to low hundreds of meters. Original SRTM data have some voids as optical measurement failed on snow-covered places and this is another source of misplaced annotations (hopefully fixed SRTM data can be found and there are other data sources)
 
 ## Interesting links
 
@@ -93,33 +94,33 @@ Open Street Maps (via Overpass API)
 
 ## Thoughts about Julia
 
-After writing like 600 lines of code in 10 evenings. Highly subjective and I may be wrong. 
-TL;DR: If you are not limited by speed in Python, stick with Python.
+After writing like 600 lines of code in 10 evenings. These are Highly subjective and I may be wrong. 
+TL;DR: If the speed of Python is not a limitation, stick with it.
 
 Pros:
-* It seems really fast - compared to Python
-* It's easier to handle dependencies than let's say C++ & CMake on Windows
+* It seems pretty fast - compared to Python
+* It's easier to handle dependencies than with C++ & CMake on Windows
 * Many pros are shared with Python
   * Packages are easy to install and use
-  * REPL as command line interface
+  * REPL as the command-line interface
   * Jupyter notebooks
-* Basics are not that hard to learn and it's easy to set-up in VS Code
+* Basics are not that hard to learn and it's easy to set up in VS Code
 * Good tools for profiling/benchmarking (do they even exist in Python?)
 
 Cons:
-* Python is more widespread and solutions are much easier to find
+* Julia is not as widespread so solutions are harder to find
 * For 95% of code I wrote in Python, speed does not matter at all
-* Performance is sometimes unpredicable and depends on implementation nuances
-  * vector addition and multiplication may allocate memory and be very slow
-  * threaded-for may allocate memory when single threaded implementation works fine and it ends up being slower
+* Performance is sometimes unpredictable and depends on implementation nuances
+  * Vector addition and multiplication may allocate memory and be very slow
+  * threaded-for may allocate memory when single-threaded implementation works fine and it ends up being slower
   * in general memory allocation may occur at any place where one would expect using just stack in C++
 * Some features are "weird" e.g. 
-  * no const keyword
-  * classes are immutable by default on the other hand
-  * class methods are more like function, they are not even part of class declaration
-  * class can't be redefined, once you touch it (e.g. add member or change constructor), you have to restart REPL
-* It's not clear how to structure larger code into files and how to work with includes/modules
-* Some operators and constants are UTF-8 character. Good luck copy-pasting π, integer division operator, ...
-* Very high run time when code is compiled or external library used for the first time - starting new REPL is pain
+  * No const keyword
+  * Classes are immutable by default on the other hand
+  * Class methods are more like functions, they are not even part of class declaration
+  * Class can't be modified. Adding a member or changing a constructor is not possible without restarting REPL
+* It's not clear how to structure longer code into files and how to work with includes/modules
+* Some operators and constants are UTF-8 characters. Good luck copy-pasting π, integer division operator, ...
+* Very high run time when code compiles or external library used for the first time - starting the new REPL is a pain
 * Very slow debug (issue with running new REPL and evaluating variables takes long)
 * Sometimes poor error reporting
