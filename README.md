@@ -113,13 +113,13 @@ Cons:
 * Performance is sometimes unpredictable and depends on implementation nuances
   * Vector addition and multiplication may allocate memory and be very slow
   * threaded-for may allocate memory when single-threaded implementation works fine and it ends up being slower
-  * in general memory allocation may occur at any place where one would expect using just stack in C++
-* Some features are "weird" e.g. 
+  * Generally, memory allocation may occur at any place. C++ uses just a stack for temporary results.
+* Some features seem odd , for example:
   * No const keyword
   * Classes are immutable by default on the other hand
-  * Class methods are more like functions, they are not even part of class declaration
-  * Class can't be modified. Adding a member or changing a constructor is not possible without restarting REPL
-* It's not clear how to structure longer code into files and how to work with includes/modules
+  * A class method is more like a function, and it is not even part of class declaration 
+  * There is no way to add a member or change the constructor of a class without restarting the REPL.
+* There are no clear guidelines for structuring large code into files or for using modules or includes
 * Some operators and constants are UTF-8 characters. Good luck copy-pasting π, integer division operator, ...
 * Very high run time when code compiles or external library used for the first time - starting the new REPL is a pain
 * Very slow debug (issue with running new REPL and evaluating variables takes long)
