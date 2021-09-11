@@ -36,8 +36,8 @@ Honestly, for every other Python script I wrote speed does not matter.
 
 * Earth is not flat - if you draw line from point A to B, it has different azimuth in both points. Imagine plane that starts in USA, goes north east and arrives to Europe going south east. This makes annotating distant hills somewhat difficult.
 * Earth is not perfect sphere - hopefully this does not seem to matter as much.
-* Athmospehere gets less dense with altitude due to decreasing pressure. As it gets colder, density slightly increases (for given pressure), which slightly compensates this effect. Refractive index changes a bit a ray of light that travels up at low angle is bend back towards the ground. By trial-error and comparing rendered image with photo, surrounded terrain is mapped onto sphere that is 18% bigger than Earth. Reference photo was taken at temperature inversion. It's not typical, but it helps to keep humid air, dust and smog close to the ground and it makes extreme visibility posible.
-* Surprisingly not all data I've found are accurate. Czech hills with prominence over 100m, Slovak hills over 200m have sometimes position erros up to low hundreds of meters. Original SRTM data have some voids as optical measurement failed on snow covered places.
+* Athmospehere gets less dense with altitude due to decreasing pressure. As it gets colder, density slightly increases (for given pressure), which slightly compensates this effect. Refractive index changes a bit and ray of light that travels up at low angle is bend back towards the ground. By trial-error and comparing rendered image with photo, surrounding terrain is mapped onto sphere that is 18% bigger than Earth. Reference photo was taken at temperature inversion. It's not typical, but it helps to keep humid air, dust and smog close to the ground and it makes extreme visibility posible.
+* Surprisingly not all data I've found are accurate. Czech hills with prominence over 100m, Slovak hills over 200m have sometimes position erros up to low hundreds of meters. Original SRTM data have some voids as optical measurement failed on snow covered places and this is another source of misplaced annotations (hopefully fixed SRTM data can be found and there are other data sources)
 
 ## Interesting links
 
@@ -82,5 +82,44 @@ Saving horizon.png
 ## Data sources
 
 Heightmaps:
+SRTM (Shuttle Radar Topography Mission) - no longer available online?
+LiDar data for SK,AT https://data.opendataportal.at/dataset/dtm-europe
 
 POIs:
+Czech hills with prominence above 100m https://www.ultratisicovky.cz/products/ultrakopec/
+Slovak hills with prominence above 200m http://www.peaklist.org/WWlists/euro600/slovakia/Slovakia200m.html
+Open Street Maps (via Overpass API)
+
+
+## Thoughts about Julia
+
+After writing like 600 lines of code in 10 evenings. Highly subjective and I may be wrong. 
+TL;DR: If you are not limited by speed in Python, stick with Python.
+
+Pros:
+* It seems really fast - compared to Python
+* It's easier to handle dependencies than let's say C++ & CMake on Windows
+* Many pros are shared with Python
+  * Packages are easy to install and use
+  * REPL as command line interface
+  * Jupyter notebooks
+* Basics are not that hard to learn and it's easy to set-up in VS Code
+* Good tools for profiling/benchmarking (do they even exist in Python?)
+
+Cons:
+* Python is more widespread and solutions are much easier to find
+* For 95% of code I wrote in Python, speed does not matter at all
+* Performance is sometimes unpredicable and depends on implementation nuances
+  * vector addition and multiplication may allocate memory and be very slow
+  * threaded-for may allocate memory when single threaded implementation works fine and it ends up being slower
+  * in general memory allocation may occur at any place where one would expect using just stack in C++
+* Some features are "weird" e.g. 
+  * no const keyword
+  * classes are immutable by default on the other hand
+  * class methods are more like function, they are not even part of class declaration
+  * class can't be redefined, once you touch it (e.g. add member or change constructor), you have to restart REPL
+* It's not clear how to structure larger code into files and how to work with includes/modules
+* Some operators and constants are UTF-8 character. Good luck copy-pasting π, integer division operator, ...
+* Very high run time when code is compiled or external library used for the first time - starting new REPL is pain
+* Very slow debug (issue with running new REPL and evaluating variables takes long)
+* Sometimes poor error reporting
